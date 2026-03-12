@@ -104,9 +104,11 @@ def _save_last_sent(supplier_name: str, dt: datetime):
 
 def apply_inventory_overrides(inventory_list):
     """세션에 저장된 수량 수정(배포 환경용)을 재고 목록에 반영. 발주수량·상태 재계산."""
+    if inventory_list is None:
+        return []
     overrides = session.get("inventory_overrides") or {}
     if not overrides:
-        return inventory_list
+        return list(inventory_list)
     result = []
     for item in inventory_list:
         item = dict(item)
@@ -140,10 +142,16 @@ def _item_with_order_status(item):
 
 def get_effective_inventory(excel_path: str):
     """엑셀 + 세션 오버라이드 + 배포 환경 세션 추가 항목을 합친 재고 목록 반환. last_sent 포함."""
-    data = load_all(excel_path)
+    try:
+        data = load_all(excel_path)
+    except Exception:
+        return []
     if data.get("error"):
         return []
-    inventory = apply_inventory_overrides(data["inventory"])
+    inv = data.get("inventory")
+    if inv is None:
+        inv = []
+    inventory = apply_inventory_overrides(inv)
     last_sent_map = _load_last_sent()
     for item in inventory:
         item["last_sent"] = last_sent_map.get((item.get("supplier") or "").strip(), "") or ""
@@ -196,6 +204,17 @@ def logout():
     return redirect(url_for("login"))
 
 
+@app.errorhandler(500)
+def handle_500(e):
+    return render_template(
+        "index.html",
+        **_index_context(
+            error="서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+            read_only_deploy=os.environ.get("VERCEL") == "1",
+        ),
+    )
+
+
 @app.before_request
 def require_auth():
     if request.endpoint in ("login", "static") or request.path.startswith("/static"):
@@ -203,70 +222,93 @@ def require_auth():
     return auth_required()
 
 
+def _index_context(error=None, orders=None, inventory=None, summary=None, chart_by_status=None, chart_by_supplier=None, excel_path=None, email_template=None, read_only_deploy=False):
+    """index.html에 넘길 공통 컨텍스트. None인 필드는 안전한 기본값."""
+    return {
+        "error": error,
+        "orders": orders or [],
+        "inventory": inventory or [],
+        "summary": summary,
+        "chart_by_status": chart_by_status if chart_by_status is not None else [],
+        "chart_by_supplier": chart_by_supplier if chart_by_supplier is not None else [],
+        "excel_path": excel_path or "",
+        "email_template": email_template or {},
+        "read_only_deploy": read_only_deploy,
+    }
+
+
 @app.route("/")
 def index():
-    # 업로드한 파일은 세션에 저장된 파일명으로 경로 구성 (URL 경로 깨짐 방지)
     excel_path = str(app.config["DEFAULT_EXCEL"])
-    if session.get("uploaded_file"):
-        candidate = Path(app.config["UPLOAD_FOLDER"]) / session["uploaded_file"]
-        if candidate.exists():
-            excel_path = str(candidate)
-    # 쿼리 파라미터로 파일명만 넘긴 경우 (file=업로드파일명)
-    file_param = request.args.get("file")
-    if file_param and ".." not in file_param:
-        candidate = Path(app.config["UPLOAD_FOLDER"]) / file_param
-        if candidate.exists():
-            excel_path = str(candidate)
-            session["uploaded_file"] = file_param
-    if not Path(excel_path).exists():
-        excel_path = str(app.config["DEFAULT_EXCEL"])
-        session.pop("uploaded_file", None)
-    data = load_all(excel_path)
-    if data.get("error"):
+    try:
+        if session.get("uploaded_file"):
+            candidate = Path(app.config["UPLOAD_FOLDER"]) / session["uploaded_file"]
+            if candidate.exists():
+                excel_path = str(candidate)
+        file_param = request.args.get("file")
+        if file_param and ".." not in file_param:
+            candidate = Path(app.config["UPLOAD_FOLDER"]) / file_param
+            if candidate.exists():
+                excel_path = str(candidate)
+                session["uploaded_file"] = file_param
+        if not Path(excel_path).exists():
+            excel_path = str(app.config["DEFAULT_EXCEL"])
+            session.pop("uploaded_file", None)
+
+        data = load_all(excel_path)
+        if data.get("error"):
+            return render_template(
+                "index.html",
+                **_index_context(
+                    error=data["error"],
+                    excel_path=excel_path,
+                    email_template=data.get("email_template"),
+                    read_only_deploy=os.environ.get("VERCEL") == "1",
+                ),
+            )
+
+        inventory = get_effective_inventory(excel_path)
+        orders = get_orders_by_supplier(inventory)
+        need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
+        total_items = len(inventory)
+        total_order_qty = sum(i.get("order_quantity", 0) for i in inventory)
+        summary = {
+            "total_items": total_items,
+            "need_order_count": need_count,
+            "total_order_quantity": total_order_qty,
+            "supplier_count": len(orders),
+        }
+        chart_by_status = [
+            {"label": "정상", "count": total_items - need_count, "pct": round(100 * (total_items - need_count) / total_items, 1) if total_items else 0},
+            {"label": "발주 필요", "count": need_count, "pct": round(100 * need_count / total_items, 1) if total_items else 0},
+        ]
+        max_supplier_qty = max((o.get("total_order_quantity") or 0 for o in orders), default=1)
+        chart_by_supplier = [
+            {"name": o.get("supplier_name") or "(미지정)", "qty": o.get("total_order_quantity") or 0, "pct": round(100 * (o.get("total_order_quantity") or 0) / max_supplier_qty, 1) if max_supplier_qty else 0}
+            for o in orders
+        ]
         return render_template(
             "index.html",
-            error=data["error"],
-            orders=[],
-            inventory=[],
-            summary=None,
-            chart_by_status=[],
-            chart_by_supplier=[],
-            excel_path=excel_path,
-            email_template=data.get("email_template", {}),
-            read_only_deploy=os.environ.get("VERCEL") == "1",
+            **_index_context(
+                orders=orders,
+                inventory=inventory,
+                summary=summary,
+                chart_by_status=chart_by_status,
+                chart_by_supplier=chart_by_supplier,
+                excel_path=excel_path,
+                email_template=data.get("email_template"),
+                read_only_deploy=os.environ.get("VERCEL") == "1",
+            ),
         )
-    inventory = get_effective_inventory(excel_path)
-    orders = get_orders_by_supplier(inventory)
-    need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
-    total_items = len(inventory)
-    total_order_qty = sum(i.get("order_quantity", 0) for i in inventory)
-    summary = {
-        "total_items": total_items,
-        "need_order_count": need_count,
-        "total_order_quantity": total_order_qty,
-        "supplier_count": len(orders),
-    }
-    chart_by_status = [
-        {"label": "정상", "count": total_items - need_count, "pct": round(100 * (total_items - need_count) / total_items, 1) if total_items else 0},
-        {"label": "발주 필요", "count": need_count, "pct": round(100 * need_count / total_items, 1) if total_items else 0},
-    ]
-    max_supplier_qty = max((o.get("total_order_quantity") or 0 for o in orders), default=1)
-    chart_by_supplier = [
-        {"name": o.get("supplier_name") or "(미지정)", "qty": o.get("total_order_quantity") or 0, "pct": round(100 * (o.get("total_order_quantity") or 0) / max_supplier_qty, 1) if max_supplier_qty else 0}
-        for o in orders
-    ]
-    return render_template(
-        "index.html",
-        error=None,
-        inventory=inventory,
-        orders=orders,
-        summary=summary,
-        chart_by_status=chart_by_status,
-        chart_by_supplier=chart_by_supplier,
-        excel_path=excel_path,
-        email_template=data.get("email_template", {}),
-        read_only_deploy=os.environ.get("VERCEL") == "1",
-    )
+    except Exception as e:
+        return render_template(
+            "index.html",
+            **_index_context(
+                error=f"오류가 발생했습니다: {str(e)}",
+                excel_path=excel_path,
+                read_only_deploy=os.environ.get("VERCEL") == "1",
+            ),
+        )
 
 
 @app.route("/upload", methods=["POST"])
