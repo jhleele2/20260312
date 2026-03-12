@@ -277,7 +277,7 @@
     <a href="{{ url_for('logout') }}">로그아웃</a>
   </header>
   <div class="page">
-  <p class="path-hint">domino_inventory_training.xlsx 기준</p>
+  <p class="path-hint">현재 적용 파일: <strong>{{ excel_filename|default('domino_inventory_training.xlsx') }}</strong> · 업로드 시 위 파일이 반영됩니다.</p>
   <div class="upload-bar">
     <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center;">
       <input type="file" name="excel" accept=".xlsx,.xls" required>
@@ -346,7 +346,7 @@
         {% for i in inventory %}
         <tr data-code="{{ i.code }}" data-current="{{ i.current_stock }}" data-safety="{{ i.safety_stock }}" data-moq="{{ i.moq }}">
           <td>{{ i.code }}</td><td>{{ i.name }}</td><td>{{ i.spec }}</td><td>{{ i.unit }}</td>
-          <td>{{ i.current_stock }}</td>
+          <td class="editable-qty" data-field="current_stock" title="클릭하여 수정">{{ i.current_stock }}</td>
           <td class="editable-qty" data-field="safety_stock" title="클릭하여 수정">{{ i.safety_stock }}</td>
           <td class="editable-qty" data-field="moq" title="클릭하여 수정">{{ i.moq }}</td>
           <td class="cell-order-qty">{{ i.order_quantity }}</td>
@@ -504,6 +504,7 @@
       }).then(function(r) { return r.json(); })
         .then(function(res) {
           if (!res.ok) { alert(res.message || '저장 실패'); return; }
+          row.dataset.current = current;
           row.dataset.safety = safety;
           row.dataset.moq = moq;
           if (res.item) {
@@ -540,10 +541,11 @@
           var newVal = input.value.trim() !== '' ? parseInt(input.value, 10) : 0;
           if (isNaN(newVal)) newVal = 0;
           var cur = parseInt(row.dataset.current, 10) || 0, safe = parseInt(row.dataset.safety, 10) || 0, moq = parseInt(row.dataset.moq, 10) || 0;
-          if (field === 'safety_stock') safe = newVal;
+          if (field === 'current_stock') cur = newVal;
+          else if (field === 'safety_stock') safe = newVal;
           else if (field === 'moq') moq = newVal;
           td.removeChild(input);
-          td.textContent = (field === 'safety_stock' ? safe : moq);
+          td.textContent = (field === 'current_stock' ? cur : field === 'safety_stock' ? safe : moq);
           saveRowQuantities(row, cur, safe, moq);
         }
         input.addEventListener('blur', finish);
