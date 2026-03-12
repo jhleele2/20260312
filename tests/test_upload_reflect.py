@@ -131,6 +131,48 @@ def test_alternate_header_format():
             path.unlink(missing_ok=True)
 
 
+def test_upload_json_returns_file_content():
+    """업로드 시 Accept: application/json 이면 응답 JSON에 업로드 파일 내용(재고/요약/차트)이 반영되는지 확인."""
+    os.environ["TEAM_PASSWORD"] = "1234"
+    if "VERCEL" in os.environ:
+        del os.environ["VERCEL"]
+    from app import app
+    upload_dir = Path(app.config["UPLOAD_FOLDER"]).resolve()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    test_filename = "test_upload_json_002.xlsx"
+    excel_bytes = make_test_excel()
+    with app.test_client() as client:
+        client.post("/login", data={"password": "1234"}, follow_redirects=True)
+        excel_bytes.seek(0)
+        r = client.post(
+            "/upload",
+            data={"excel": (excel_bytes, test_filename)},
+            content_type="multipart/form-data",
+            headers={"Accept": "application/json"},
+            follow_redirects=False,
+        )
+        if r.status_code != 200:
+            raise AssertionError(f"Upload with Accept:application/json expected 200, got {r.status_code}. Body: {r.data[:500]}")
+        data = r.get_json()
+        assert data, "Response should be JSON"
+        assert data.get("ok") is True, data.get("message", "ok not True")
+        assert data.get("excel_filename") == test_filename or data.get("excel_path_for_api") == test_filename
+        inv = data.get("inventory") or []
+        assert len(inv) >= 1, "inventory should have at least one row"
+        codes = [i.get("code") for i in inv]
+        assert "TEST_UPLOAD_001" in codes, f"Uploaded item TEST_UPLOAD_001 not in inventory: {codes}"
+        first = next(i for i in inv if i.get("code") == "TEST_UPLOAD_001")
+        assert first.get("name") == "업로드테스트품목"
+        assert first.get("current_stock") == 10
+        assert first.get("safety_stock") == 20
+        s = data.get("summary")
+        assert s and s.get("total_items") >= 1
+        assert data.get("chart_by_status") is not None
+        assert data.get("chart_by_supplier") is not None
+        assert data.get("orders") is not None
+    print("OK: Upload JSON response contains uploaded file content (inventory/summary/charts).")
+
+
 def test_resolve_excel_path_prefers_blob_url_on_vercel():
     """배포 환경에서 세션에 Blob URL이 있으면 resolve_excel_path가 해당 URL을 반환하는지 확인."""
     os.environ["TEAM_PASSWORD"] = "1234"
@@ -152,6 +194,7 @@ def test_resolve_excel_path_prefers_blob_url_on_vercel():
 if __name__ == "__main__":
     try:
         test_upload_reflected()
+        test_upload_json_returns_file_content()
         test_alternate_header_format()
         test_resolve_excel_path_prefers_blob_url_on_vercel()
         print("All checks passed.")
