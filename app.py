@@ -407,6 +407,9 @@ def upload():
         )
     session["uploaded_file"] = safe_name
     session["uploaded_blob_url"] = None
+    # 새 엑셀 업로드 시 웹에서 수정한 값(세션 오버라이드) 초기화 → 업로드한 엑셀 내용 그대로 반영
+    session.pop("inventory_overrides", None)
+    session.pop("inventory_added_items", None)
     if os.environ.get("VERCEL") == "1":
         blob_url = _upload_to_vercel_blob(safe_name, file_bytes)
         if blob_url:
