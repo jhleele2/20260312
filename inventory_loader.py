@@ -200,6 +200,61 @@ def update_inventory_item(
         wb.close()
 
 
+def add_inventory_item(
+    excel_path: str,
+    *,
+    code: str,
+    name: str = "",
+    spec: str = "",
+    unit: str = "",
+    current_stock: int = 0,
+    safety_stock: int = 0,
+    moq: int = 0,
+    supplier: str = "",
+    contact: str = "",
+    supplier_email: str = "",
+    lead_time_days: int = 0,
+) -> Tuple[bool, str]:
+    """
+    재고 시트에 새 품목 행을 추가합니다.
+    반환: (성공 여부, 메시지)
+    """
+    if os.environ.get("VERCEL") == "1":
+        return False, "배포 환경(Vercel)에서는 엑셀 추가가 불가합니다."
+    path = Path(excel_path)
+    if not path.exists():
+        return False, "파일이 없습니다."
+    code_str = (code or "").strip()
+    if not code_str:
+        return False, "품목코드를 입력하세요."
+    wb = openpyxl.load_workbook(path, read_only=False)
+    try:
+        inv_ws = _find_inventory_sheet(wb)
+        if not inv_ws:
+            return False, "재고 시트를 찾을 수 없습니다."
+        for row in range(2, inv_ws.max_row + 1):
+            if _cell_str(inv_ws.cell(row=row, column=1).value) == code_str:
+                return False, f"품목코드 '{code_str}'가 이미 존재합니다."
+        next_row = inv_ws.max_row + 1
+        inv_ws.cell(row=next_row, column=1, value=code_str)
+        inv_ws.cell(row=next_row, column=2, value=str(name or ""))
+        inv_ws.cell(row=next_row, column=3, value=str(spec or ""))
+        inv_ws.cell(row=next_row, column=4, value=str(unit or ""))
+        inv_ws.cell(row=next_row, column=5, value=int(current_stock))
+        inv_ws.cell(row=next_row, column=6, value=int(safety_stock))
+        inv_ws.cell(row=next_row, column=7, value=int(moq))
+        inv_ws.cell(row=next_row, column=8, value=str(supplier or ""))
+        inv_ws.cell(row=next_row, column=9, value=str(contact or ""))
+        inv_ws.cell(row=next_row, column=10, value=str(supplier_email or ""))
+        inv_ws.cell(row=next_row, column=11, value=int(lead_time_days))
+        wb.save(path)
+        return True, "항목이 추가되었습니다."
+    except Exception as e:
+        return False, str(e)
+    finally:
+        wb.close()
+
+
 def get_orders_by_supplier(inventory: List[Dict]) -> List[Dict[str, Any]]:
     """발주 필요한 항목만 공급업체별로 묶습니다."""
     by_supplier: Dict[str, List[Dict]] = {}

@@ -3,9 +3,13 @@
 재고 파악 → 부족 시 담당 기업에 발주서 이메일 발송 웹 시스템.
 데이터: 엑셀 파일(domino_inventory_training.xlsx 구조) 업로드 또는 기본 파일 사용.
 """
+import json
 import os
 from pathlib import Path
 from time import time
+from datetime import datetime
+from io import BytesIO
+import openpyxl
 
 _base_dir = Path(__file__).resolve().parent
 _env_file = _base_dir / ".env"
@@ -38,10 +42,10 @@ except ImportError:
     pass
 _load_env()
 
-from flask import Flask, request, render_template, jsonify, redirect, url_for, session
+from flask import Flask, request, render_template, jsonify, redirect, url_for, session, send_file
 from werkzeug.utils import secure_filename
 
-from inventory_loader import load_all, get_orders_by_supplier, update_inventory_item
+from inventory_loader import load_all, get_orders_by_supplier, update_inventory_item, add_inventory_item
 from email_sender import fill_template, send_order_email, DEFAULT_SENDER_EMAIL, DEFAULT_STORE_NAME, DEFAULT_INTERNAL_OWNER
 
 app = Flask(__name__)
@@ -60,6 +64,36 @@ app.config["UPLOAD_FOLDER"].mkdir(parents=True, exist_ok=True)
 TEAM_PASSWORD = os.environ.get("TEAM_PASSWORD", "1234")
 
 ALLOWED_EXTENSIONS = {"xlsx", "xls"}
+
+# 최근 발송일시 저장 (공급업체명 -> "YYYY-MM-DD HH:MM:SS")
+if os.environ.get("VERCEL") == "1":
+    _last_sent_dir = Path("/tmp")
+else:
+    _last_sent_dir = _base_dir / "data"
+_last_sent_dir.mkdir(parents=True, exist_ok=True)
+LAST_SENT_FILE = _last_sent_dir / "last_sent.json"
+
+
+def _load_last_sent() -> dict:
+    """공급업체별 최근 발송일시 로드."""
+    if not LAST_SENT_FILE.exists():
+        return {}
+    try:
+        with open(LAST_SENT_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_last_sent(supplier_name: str, dt: datetime):
+    """해당 공급업체 최근 발송일시 갱신."""
+    data = _load_last_sent()
+    data[supplier_name] = dt.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(LAST_SENT_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=0)
+    except Exception:
+        pass
 
 
 def apply_inventory_overrides(inventory_list):
@@ -146,6 +180,9 @@ def index():
             "index.html", error=data["error"], orders=[], inventory=[], summary=None, read_only_deploy=os.environ.get("VERCEL") == "1"
         )
     inventory = apply_inventory_overrides(data["inventory"])
+    last_sent_map = _load_last_sent()
+    for item in inventory:
+        item["last_sent"] = last_sent_map.get((item.get("supplier") or "").strip(), "") or ""
     orders = get_orders_by_supplier(inventory)
     need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
     total_items = len(inventory)
@@ -236,6 +273,104 @@ def api_inventory_update():
     return jsonify({"ok": ok, "message": msg})
 
 
+@app.route("/api/inventory/add", methods=["POST"])
+def api_inventory_add():
+    """재고 품목 한 건 추가. 엑셀 재고 시트에 행 추가."""
+    data = request.get_json() or {}
+    excel_path = data.get("excel_path") or str(app.config["DEFAULT_EXCEL"])
+    if not Path(excel_path).exists():
+        return jsonify({"ok": False, "message": "엑셀 파일을 찾을 수 없습니다."})
+    code = (data.get("code") or "").strip()
+    if not code:
+        return jsonify({"ok": False, "message": "품목코드는 필수입니다."})
+    try:
+        current_stock = int(data.get("current_stock", 0))
+        safety_stock = int(data.get("safety_stock", 0))
+        moq = int(data.get("moq", 0))
+        lead_time_days = int(data.get("lead_time_days", 0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "현재고/안전재고/MOQ/리드타임은 숫자로 입력하세요."})
+    ok, msg = add_inventory_item(
+        excel_path,
+        code=code,
+        name=(data.get("name") or "").strip(),
+        spec=(data.get("spec") or "").strip(),
+        unit=(data.get("unit") or "").strip(),
+        current_stock=current_stock,
+        safety_stock=safety_stock,
+        moq=moq,
+        supplier=(data.get("supplier") or "").strip(),
+        contact=(data.get("contact") or "").strip(),
+        supplier_email=(data.get("supplier_email") or "").strip(),
+        lead_time_days=lead_time_days,
+    )
+    return jsonify({"ok": ok, "message": msg})
+
+
+def _build_export_inventory(excel_path: str):
+    """현재 재고(오버라이드+최근발송일시 반영)로 엑셀 바이트 생성."""
+    data = load_all(excel_path)
+    if data.get("error"):
+        return None, data["error"]
+    inventory = apply_inventory_overrides(data["inventory"])
+    last_sent_map = _load_last_sent()
+    for item in inventory:
+        item["last_sent"] = last_sent_map.get((item.get("supplier") or "").strip(), "") or ""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "재고현황"
+    headers = [
+        "품목코드", "이름", "규격", "단위", "현재고", "안전재고", "MOQ",
+        "공급업체", "담당자명", "공급업체이메일", "리드타임(일)",
+        "발주수량", "상태", "최근 발송일시"
+    ]
+    for col, h in enumerate(headers, 1):
+        ws.cell(row=1, column=col, value=h)
+    for row_idx, item in enumerate(inventory, 2):
+        ws.cell(row=row_idx, column=1, value=item.get("code", ""))
+        ws.cell(row=row_idx, column=2, value=item.get("name", ""))
+        ws.cell(row=row_idx, column=3, value=item.get("spec", ""))
+        ws.cell(row=row_idx, column=4, value=item.get("unit", ""))
+        ws.cell(row=row_idx, column=5, value=item.get("current_stock", 0))
+        ws.cell(row=row_idx, column=6, value=item.get("safety_stock", 0))
+        ws.cell(row=row_idx, column=7, value=item.get("moq", 0))
+        ws.cell(row=row_idx, column=8, value=item.get("supplier", ""))
+        ws.cell(row=row_idx, column=9, value=item.get("contact", ""))
+        ws.cell(row=row_idx, column=10, value=item.get("supplier_email", ""))
+        ws.cell(row=row_idx, column=11, value=item.get("lead_time_days", 0))
+        ws.cell(row=row_idx, column=12, value=item.get("order_quantity", 0))
+        ws.cell(row=row_idx, column=13, value=item.get("status", ""))
+        ws.cell(row=row_idx, column=14, value=item.get("last_sent", ""))
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf, None
+
+
+@app.route("/api/inventory/export", methods=["POST"])
+def api_inventory_export():
+    """재고현황(최근 발송일시 포함) 엑셀 다운로드."""
+    raw = (request.get_json() or {}).get("excel_path") or session.get("uploaded_file") or ""
+    raw = str(raw).strip()
+    excel_path = None
+    if raw and ".." not in raw:
+        p = Path(raw)
+        if p.is_absolute() and p.exists():
+            excel_path = str(p)
+        else:
+            candidate = Path(app.config["UPLOAD_FOLDER"]) / raw
+            excel_path = str(candidate) if candidate.exists() else None
+    if not excel_path or not Path(excel_path).exists():
+        excel_path = str(app.config["DEFAULT_EXCEL"])
+    if not Path(excel_path).exists():
+        return jsonify({"ok": False, "message": "엑셀 파일을 찾을 수 없습니다."}), 400
+    buf, err = _build_export_inventory(excel_path)
+    if err:
+        return jsonify({"ok": False, "message": err}), 400
+    filename = f"재고현황_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=filename, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 @app.route("/api/send-orders", methods=["POST"])
 def api_send_orders():
     """선택한 공급업체에 대해 발주서 이메일 발송."""
@@ -285,6 +420,8 @@ def api_send_orders():
             smtp_host=smtp_host, smtp_port=smtp_port,
             bcc=os.environ.get("SMTP_BCC") or sender_email,
         )
+        if ok:
+            _save_last_sent(order["supplier_name"], datetime.now())
         results.append({
             "supplier": order["supplier_name"],
             "email": order["email"],
