@@ -1,0 +1,11 @@
+.env
+uploads/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+.venv/
+venv/
+.cursor/
+*.log
+~$*
