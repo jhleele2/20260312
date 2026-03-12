@@ -235,8 +235,21 @@ def require_auth():
     return auth_required()
 
 
-def _index_context(error=None, orders=None, inventory=None, summary=None, chart_by_status=None, chart_by_supplier=None, excel_path=None, email_template=None, read_only_deploy=False):
-    """index.html에 넘길 공통 컨텍스트. None인 필드는 안전한 기본값."""
+def _index_context(error=None, orders=None, inventory=None, summary=None, chart_by_status=None, chart_by_supplier=None, excel_path=None, excel_filename=None, excel_path_for_api=None, email_template=None, read_only_deploy=False):
+    """index.html에 넘길 공통 컨텍스트. None인 필드는 안전한 기본값. excel_path_for_api: API 호출 시 사용할 경로(업로드 파일이면 파일명만)."""
+    fname = excel_filename if excel_filename is not None else (Path(excel_path).name if excel_path else "")
+    upload_dir = Path(app.config["UPLOAD_FOLDER"])
+    api_path = excel_path_for_api
+    if api_path is None and excel_path:
+        try:
+            p = Path(excel_path).resolve()
+            ud = upload_dir.resolve()
+            if str(p).startswith(str(ud)) or p == ud:
+                api_path = p.name
+        except (ValueError, OSError):
+            pass
+        if api_path is None:
+            api_path = excel_path
     return {
         "error": error,
         "orders": orders or [],
@@ -245,6 +258,8 @@ def _index_context(error=None, orders=None, inventory=None, summary=None, chart_
         "chart_by_status": chart_by_status if chart_by_status is not None else [],
         "chart_by_supplier": chart_by_supplier if chart_by_supplier is not None else [],
         "excel_path": excel_path or "",
+        "excel_path_for_api": api_path or excel_path or "",
+        "excel_filename": fname or "domino_inventory_training.xlsx",
         "email_template": email_template or {},
         "read_only_deploy": read_only_deploy,
     }
@@ -252,21 +267,14 @@ def _index_context(error=None, orders=None, inventory=None, summary=None, chart_
 
 @app.route("/")
 def index():
-    excel_path = str(app.config["DEFAULT_EXCEL"])
     try:
-        if session.get("uploaded_file"):
-            candidate = Path(app.config["UPLOAD_FOLDER"]) / session["uploaded_file"]
-            if candidate.exists():
-                excel_path = str(candidate)
         file_param = request.args.get("file")
         if file_param and ".." not in file_param:
-            candidate = Path(app.config["UPLOAD_FOLDER"]) / file_param
-            if candidate.exists():
-                excel_path = str(candidate)
-                session["uploaded_file"] = file_param
+            session["uploaded_file"] = file_param
+        excel_path = resolve_excel_path(file_param or session.get("uploaded_file") or "")
         if not Path(excel_path).exists():
-            excel_path = str(app.config["DEFAULT_EXCEL"])
             session.pop("uploaded_file", None)
+            excel_path = str(app.config["DEFAULT_EXCEL"])
 
         data = load_all(excel_path)
         if data.get("error"):
@@ -369,23 +377,35 @@ def upload():
     return redirect(url_for("index", file=safe_name))
 
 
-def _resolve_excel_path_for_response(client_path: str):
-    """클라이언트가 보낸 excel_path를 보정해 get_effective_inventory 호출용 경로 반환 (배포 시 세션 파일 우선)."""
-    p = Path(client_path or str(app.config["DEFAULT_EXCEL"]))
-    if p.exists():
+def resolve_excel_path(client_path: str) -> str:
+    """클라이언트가 보낸 경로(또는 파일명)를 실제 사용할 엑셀 경로로 통일. 업로드 파일·세션 우선 반영."""
+    raw = (client_path or "").strip()
+    if not raw:
+        raw = session.get("uploaded_file") or ""
+    if raw and ".." in raw:
+        raw = ""
+    upload_dir = Path(app.config["UPLOAD_FOLDER"])
+    default = str(app.config["DEFAULT_EXCEL"])
+    p = Path(raw) if raw else None
+    if p and p.is_absolute() and p.exists():
         return str(p)
-    if session.get("uploaded_file"):
-        cand = Path(app.config["UPLOAD_FOLDER"]) / session["uploaded_file"]
+    if raw:
+        name = Path(raw).name
+        cand = upload_dir / name
         if cand.exists():
             return str(cand)
-    return str(app.config["DEFAULT_EXCEL"])
+    if session.get("uploaded_file"):
+        cand = upload_dir / session["uploaded_file"]
+        if cand.exists():
+            return str(cand)
+    return default
 
 
 @app.route("/api/inventory/update", methods=["POST"])
 def api_inventory_update():
-    """재고 품목 한 건 수정. 엑셀 파일에 반영. 성공 시 갱신된 항목·요약·시각화 반환."""
+    """재고 품목 한 건 수정. 엑셀 파일에 반영. 성공 시 갱신된 항목·요약·시각화 반환. 업로드 파일 경로 우선."""
     data = request.get_json() or {}
-    excel_path = data.get("excel_path") or str(app.config["DEFAULT_EXCEL"])
+    excel_path = resolve_excel_path(str(data.get("excel_path") or "").strip())
     item_code = data.get("item_code")
     if not item_code:
         return jsonify({"ok": False, "message": "품목코드가 필요합니다."})
@@ -412,14 +432,15 @@ def api_inventory_update():
         if not Path(excel_path).exists():
             return jsonify({"ok": False, "message": "엑셀 파일을 찾을 수 없습니다."})
         ok, msg = update_inventory_item(
-            excel_path, code,
+            excel_path,
+            code,
             current_stock=current_stock, safety_stock=safety_stock, moq=moq,
             name=data.get("name"), spec=data.get("spec"), unit=data.get("unit"), supplier=data.get("supplier"),
         )
         if not ok:
             return jsonify({"ok": False, "message": msg})
     # 갱신된 재고로 요약·시각화 계산해 바로 반영용으로 반환
-    resolved = _resolve_excel_path_for_response(excel_path)
+    resolved = resolve_excel_path(excel_path)
     inventory = get_effective_inventory(resolved)
     orders = get_orders_by_supplier(inventory)
     need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
@@ -456,8 +477,8 @@ def api_inventory_update():
 def api_inventory_add():
     """재고 품목 한 건 추가. 로컬은 엑셀에 저장, 배포(Vercel)는 세션에 저장해 화면·발송·엑셀내보내기에 반영."""
     data = request.get_json() or {}
-    excel_path = data.get("excel_path") or str(app.config["DEFAULT_EXCEL"])
-    if not Path(excel_path).exists():
+    excel_path = resolve_excel_path(str(data.get("excel_path") or "").strip())
+    if os.environ.get("VERCEL") != "1" and not Path(excel_path).exists():
         return jsonify({"ok": False, "message": "엑셀 파일을 찾을 수 없습니다."})
     code = (data.get("code") or "").strip()
     if not code:
@@ -548,19 +569,9 @@ def _build_export_inventory(excel_path: str):
 
 @app.route("/api/inventory/export", methods=["POST"])
 def api_inventory_export():
-    """재고현황(최근 발송일시 포함) 엑셀 다운로드."""
-    raw = (request.get_json() or {}).get("excel_path") or session.get("uploaded_file") or ""
-    raw = str(raw).strip()
-    excel_path = None
-    if raw and ".." not in raw:
-        p = Path(raw)
-        if p.is_absolute() and p.exists():
-            excel_path = str(p)
-        else:
-            candidate = Path(app.config["UPLOAD_FOLDER"]) / raw
-            excel_path = str(candidate) if candidate.exists() else None
-    if not excel_path or not Path(excel_path).exists():
-        excel_path = str(app.config["DEFAULT_EXCEL"])
+    """재고현황(최근 발송일시 포함) 엑셀 다운로드. 업로드한 파일 경로 우선 반영."""
+    raw = (request.get_json() or {}).get("excel_path") or ""
+    excel_path = resolve_excel_path(str(raw).strip())
     if not Path(excel_path).exists():
         return jsonify({"ok": False, "message": "엑셀 파일을 찾을 수 없습니다."}), 400
     buf, err = _build_export_inventory(excel_path)
@@ -572,8 +583,8 @@ def api_inventory_export():
 
 @app.route("/api/send-orders", methods=["POST"])
 def api_send_orders():
-    """선택한 공급업체에 대해 발주서 이메일 발송."""
-    excel_path = request.json.get("excel_path") or str(app.config["DEFAULT_EXCEL"])
+    """선택한 공급업체에 대해 발주서 이메일 발송. 업로드한 파일 경로 우선 반영."""
+    excel_path = resolve_excel_path(str((request.json or {}).get("excel_path") or "").strip())
     supplier_indices = request.json.get("supplier_indices")  # 보낼 공급업체 인덱스 목록 (전부면 생략 가능)
     store_name = request.json.get("store_name") or DEFAULT_STORE_NAME
     internal_owner = request.json.get("internal_owner") or DEFAULT_INTERNAL_OWNER

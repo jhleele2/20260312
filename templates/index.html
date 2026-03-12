@@ -339,7 +339,7 @@
       <thead>
         <tr>
           <th>품목코드</th><th>이름</th><th>규격</th><th>단위</th><th>현재고</th><th>안전재고</th><th>MOQ</th>
-          <th>발주수량</th><th>상태</th><th>공급업체</th><th>최근 발송일시</th>
+          <th title="자동 계산 (수정 불가)">발주수량</th><th>상태</th><th>공급업체</th><th>최근 발송일시</th>
         </tr>
       </thead>
       <tbody>
@@ -349,7 +349,7 @@
           <td class="editable-qty" data-field="current_stock" title="클릭하여 수정">{{ i.current_stock }}</td>
           <td class="editable-qty" data-field="safety_stock" title="클릭하여 수정">{{ i.safety_stock }}</td>
           <td class="editable-qty" data-field="moq" title="클릭하여 수정">{{ i.moq }}</td>
-          <td class="cell-order-qty">{{ i.order_quantity }}</td>
+          <td class="cell-order-qty" title="자동 계산 (수정 불가)">{{ i.order_quantity }}</td>
           <td class="cell-status {% if i.status == '발주 필요' %}status-warn{% else %}status-ok{% endif %}">{{ i.status }}</td>
           <td>{{ i.supplier }}</td>
           <td>{{ i.last_sent or '-' }}</td>
@@ -406,7 +406,7 @@
   {% endif %}
 
   <script>
-    var excelPathForEdit = {{ (excel_path|default('')) | tojson }};
+    var excelPathForEdit = {{ (excel_path_for_api|default(excel_path)|default('')) | tojson }};
 
     var btnAdd = document.querySelector('.btn-add-item');
     if (btnAdd) btnAdd.addEventListener('click', function() { document.getElementById('modal-add-item').style.display = 'flex'; });

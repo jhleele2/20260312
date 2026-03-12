@@ -4,9 +4,15 @@
 재고·공급처·이메일 템플릿을 읽고, 발주 필요 항목을 분석합니다.
 """
 import os
+from io import BytesIO
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import openpyxl
+
+try:
+    from urllib.request import urlopen
+except ImportError:
+    urlopen = None
 
 
 # 시트별 컬럼 인덱스 (0-based, 헤더 다음 데이터 행 기준)
@@ -114,11 +120,22 @@ def _find_inventory_sheet(wb):
 
 
 def load_all(excel_path: str) -> Dict[str, Any]:
-    path = Path(excel_path)
-    if not path.exists():
-        return {"error": f"파일 없음: {excel_path}", "suppliers": [], "inventory": [], "email_template": {}}
+    excel_path = (excel_path or "").strip()
+    if not excel_path:
+        return {"error": "파일 경로가 없습니다.", "suppliers": [], "inventory": [], "email_template": {}}
     err, suppliers, inventory, email_template = None, [], [], {"subject": "", "body": ""}
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    if excel_path.startswith(("http://", "https://")) and urlopen:
+        try:
+            with urlopen(excel_path, timeout=30) as resp:
+                data = resp.read()
+            wb = openpyxl.load_workbook(BytesIO(data), read_only=True, data_only=True)
+        except Exception as e:
+            return {"error": f"URL에서 엑셀 로드 실패: {e}", "suppliers": [], "inventory": [], "email_template": {}}
+    else:
+        path = Path(excel_path)
+        if not path.exists():
+            return {"error": f"파일 없음: {excel_path}", "suppliers": [], "inventory": [], "email_template": {}}
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         suppliers_ws = get_sheet_by_name(wb, "Suppliers") or get_sheet_by_name(wb, "공급업체")
         inventory_ws = _find_inventory_sheet(wb)
