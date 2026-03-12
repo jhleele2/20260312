@@ -65,6 +65,9 @@ TEAM_PASSWORD = os.environ.get("TEAM_PASSWORD", "1234")
 
 ALLOWED_EXTENSIONS = {"xlsx", "xls"}
 
+# 해당 주소로는 발주 메일 발송 안 함 (소문자로 비교)
+BLOCKED_EMAILS = {e.strip().lower() for e in os.environ.get("BLOCKED_EMAILS", "liszzm@naver.com").split(",") if e.strip()}
+
 # 최근 발송일시 저장 (공급업체명 -> "YYYY-MM-DD HH:MM:SS")
 if os.environ.get("VERCEL") == "1":
     _last_sent_dir = Path("/tmp")
@@ -230,12 +233,23 @@ def index():
         "total_order_quantity": total_order_qty,
         "supplier_count": len(orders),
     }
+    chart_by_status = [
+        {"label": "정상", "count": total_items - need_count, "pct": round(100 * (total_items - need_count) / total_items, 1) if total_items else 0},
+        {"label": "발주 필요", "count": need_count, "pct": round(100 * need_count / total_items, 1) if total_items else 0},
+    ]
+    max_supplier_qty = max((o.get("total_order_quantity") or 0 for o in orders), default=1)
+    chart_by_supplier = [
+        {"name": o.get("supplier_name") or "(미지정)", "qty": o.get("total_order_quantity") or 0, "pct": round(100 * (o.get("total_order_quantity") or 0) / max_supplier_qty, 1) if max_supplier_qty else 0}
+        for o in orders
+    ]
     return render_template(
         "index.html",
         error=None,
         inventory=inventory,
         orders=orders,
         summary=summary,
+        chart_by_status=chart_by_status,
+        chart_by_supplier=chart_by_supplier,
         excel_path=excel_path,
         email_template=data.get("email_template", {}),
         read_only_deploy=os.environ.get("VERCEL") == "1",
@@ -470,12 +484,16 @@ def api_send_orders():
             order["supplier_name"], order["items"],
             store_name=store_name, internal_owner=internal_owner,
         )
-        ok, msg = send_order_email(
-            order["email"], subject, body,
-            sender_email=sender_email, sender_password=sender_password,
-            smtp_host=smtp_host, smtp_port=smtp_port,
-            bcc=os.environ.get("SMTP_BCC") or sender_email,
-        )
+        to_email = (order.get("email") or "").strip().lower()
+        if to_email in BLOCKED_EMAILS:
+            ok, msg = False, "해당 주소는 발송 제외됩니다."
+        else:
+            ok, msg = send_order_email(
+                order["email"], subject, body,
+                sender_email=sender_email, sender_password=sender_password,
+                smtp_host=smtp_host, smtp_port=smtp_port,
+                bcc=os.environ.get("SMTP_BCC") or sender_email,
+            )
         now_kst = datetime.now(KST)
         if ok:
             _save_last_sent(order["supplier_name"], now_kst)

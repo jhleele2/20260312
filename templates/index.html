@@ -112,6 +112,28 @@
     }
     .summary .card .label { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.35rem; }
     .summary .card .value { font-size: 1.375rem; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
+    .chart-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    @media (max-width: 640px) { .chart-section { grid-template-columns: 1fr; } }
+    .chart-box {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      border: 1px solid var(--border);
+    }
+    .chart-box h3 { font-size: 0.8125rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--muted); }
+    .chart-row { margin-bottom: 0.5rem; }
+    .chart-row:last-child { margin-bottom: 0; }
+    .chart-row .flex { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem; font-size: 0.8125rem; }
+    .chart-bar-wrap { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .chart-bar { height: 100%; border-radius: 4px; min-width: 2px; transition: width 0.3s ease; }
+    .chart-bar.ok { background: var(--success); }
+    .chart-bar.warn { background: var(--warn); }
+    .chart-bar.supplier { background: var(--accent); }
     .table-wrap {
       background: var(--card);
       border-radius: var(--radius);
@@ -186,6 +208,33 @@
     <div class="card"><div class="label">발주 필요 품목 수</div><div class="value">{{ summary.need_order_count }}</div></div>
     <div class="card"><div class="label">총 발주 수량</div><div class="value">{{ summary.total_order_quantity }}</div></div>
     <div class="card"><div class="label">발주 공급업체 수</div><div class="value">{{ summary.supplier_count }}</div></div>
+  </div>
+
+  {% if chart_by_status or chart_by_supplier %}
+  <h2>범주별 시각화 <span class="arrow">›</span></h2>
+  <div class="chart-section">
+    {% if chart_by_status %}
+    <div class="chart-box">
+      <h3>상태별 품목 수</h3>
+      {% for s in chart_by_status %}
+      <div class="chart-row">
+        <div class="flex"><span>{{ s.label }}</span><span>{{ s.count }}건 ({{ s.pct }}%)</span></div>
+        <div class="chart-bar-wrap"><div class="chart-bar {{ 'ok' if s.label == '정상' else 'warn' }}" style="width: {{ s.pct }}%;"></div></div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if chart_by_supplier %}
+    <div class="chart-box">
+      <h3>공급업체별 발주 수량</h3>
+      {% for s in chart_by_supplier %}
+      <div class="chart-row">
+        <div class="flex"><span>{{ s.name }}</span><span>{{ s.qty }}</span></div>
+        <div class="chart-bar-wrap"><div class="chart-bar supplier" style="width: {{ s.pct }}%;"></div></div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   {% endif %}
 
