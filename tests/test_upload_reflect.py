@@ -131,10 +131,29 @@ def test_alternate_header_format():
             path.unlink(missing_ok=True)
 
 
+def test_resolve_excel_path_prefers_blob_url_on_vercel():
+    """배포 환경에서 세션에 Blob URL이 있으면 resolve_excel_path가 해당 URL을 반환하는지 확인."""
+    os.environ["TEAM_PASSWORD"] = "1234"
+    os.environ["VERCEL"] = "1"
+    try:
+        from app import app, resolve_excel_path
+        from flask import session
+        with app.test_request_context():
+            session["uploaded_blob_url"] = "https://example.blob.vercel-storage.com/test.xlsx"
+            session["uploaded_file"] = "test.xlsx"
+            out = resolve_excel_path("")
+            assert out == "https://example.blob.vercel-storage.com/test.xlsx", (out, type(out))
+        print("OK: resolve_excel_path returns Blob URL when set in session (Vercel).")
+    finally:
+        if "VERCEL" in os.environ:
+            del os.environ["VERCEL"]
+
+
 if __name__ == "__main__":
     try:
         test_upload_reflected()
         test_alternate_header_format()
+        test_resolve_excel_path_prefers_blob_url_on_vercel()
         print("All checks passed.")
     except Exception as e:
         print(f"FAIL: {e}")

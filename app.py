@@ -278,14 +278,18 @@ def index():
             session["uploaded_file"] = file_param
         # 업로드한 파일명(URL 또는 세션)을 우선 사용해 경로 해석
         excel_path = resolve_excel_path(file_param or session.get("uploaded_file") or "")
-        try:
-            if not Path(excel_path).resolve().exists():
-                excel_path = str(Path(app.config["DEFAULT_EXCEL"]).resolve())
-                if not Path(excel_path).exists():
-                    session.pop("uploaded_file", None)
-        except (OSError, RuntimeError):
-            excel_path = str(app.config["DEFAULT_EXCEL"])
-            session.pop("uploaded_file", None)
+        # Blob URL이면 exists 검사 생략 (배포 환경 업로드 반영)
+        if not (excel_path.startswith("http://") or excel_path.startswith("https://")):
+            try:
+                if not Path(excel_path).resolve().exists():
+                    excel_path = str(Path(app.config["DEFAULT_EXCEL"]).resolve())
+                    if not Path(excel_path).exists():
+                        session.pop("uploaded_file", None)
+                        session.pop("uploaded_blob_url", None)
+            except (OSError, RuntimeError):
+                excel_path = str(app.config["DEFAULT_EXCEL"])
+                session.pop("uploaded_file", None)
+                session.pop("uploaded_blob_url", None)
 
         data = load_all(excel_path)
         if data.get("error"):
@@ -353,6 +357,22 @@ def index():
             )
 
 
+def _upload_to_vercel_blob(safe_name: str, file_bytes: bytes):
+    """배포 환경에서 업로드 파일을 Vercel Blob에 저장하고 URL 반환. 실패 시 None. (vercel-blob 패키지 및 BLOB_READ_WRITE_TOKEN 필요)"""
+    if not os.environ.get("BLOB_READ_WRITE_TOKEN"):
+        return None
+    try:
+        import vercel_blob  # optional: pip install vercel-blob
+        resp = vercel_blob.put(safe_name, file_bytes)
+        if resp and hasattr(resp, "url"):
+            return getattr(resp, "url", None)
+        if isinstance(resp, dict):
+            return resp.get("url") or resp.get("downloadUrl")
+        return None
+    except Exception:
+        return None
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     if "excel" not in request.files:
@@ -369,8 +389,9 @@ def upload():
     if not safe_name.strip():
         safe_name = f"upload_{int(time())}.{ext}"
     path = upload_dir / safe_name
+    file_bytes = f.read()
     try:
-        f.save(str(path))
+        path.write_bytes(file_bytes)
     except (PermissionError, OSError) as e:
         return render_template(
             "index.html",
@@ -385,11 +406,19 @@ def upload():
             read_only_deploy=os.environ.get("VERCEL") == "1",
         )
     session["uploaded_file"] = safe_name
+    session["uploaded_blob_url"] = None
+    if os.environ.get("VERCEL") == "1":
+        blob_url = _upload_to_vercel_blob(safe_name, file_bytes)
+        if blob_url:
+            session["uploaded_blob_url"] = blob_url
     return redirect(url_for("index", file=safe_name))
 
 
 def resolve_excel_path(client_path: str) -> str:
-    """클라이언트가 보낸 경로(또는 파일명)를 실제 사용할 엑셀 경로로 통일. 업로드 파일·세션 우선 반영."""
+    """클라이언트가 보낸 경로(또는 파일명)를 실제 사용할 엑셀 경로로 통일. 배포 시 Blob URL 우선."""
+    # 배포 환경: 세션에 Blob URL이 있으면 그대로 사용 (업로드 파일 영구 반영)
+    if os.environ.get("VERCEL") == "1" and session.get("uploaded_blob_url"):
+        return session["uploaded_blob_url"]
     raw = (client_path or "").strip()
     if not raw:
         raw = session.get("uploaded_file") or ""
@@ -589,12 +618,22 @@ def _build_export_inventory(excel_path: str):
     return buf, None
 
 
+def _excel_path_exists(excel_path: str) -> bool:
+    """경로가 로컬 파일이면 존재 여부 반환, URL이면 True(사용 가능)."""
+    if not excel_path or excel_path.startswith("http://") or excel_path.startswith("https://"):
+        return bool(excel_path)
+    try:
+        return Path(excel_path).resolve().exists()
+    except (OSError, RuntimeError):
+        return False
+
+
 @app.route("/api/inventory/export", methods=["POST"])
 def api_inventory_export():
     """재고현황(최근 발송일시 포함) 엑셀 다운로드. 업로드한 파일 경로 우선 반영."""
     raw = (request.get_json() or {}).get("excel_path") or ""
     excel_path = resolve_excel_path(str(raw).strip())
-    if not Path(excel_path).exists():
+    if not _excel_path_exists(excel_path):
         return jsonify({"ok": False, "message": "엑셀 파일을 찾을 수 없습니다."}), 400
     buf, err = _build_export_inventory(excel_path)
     if err:

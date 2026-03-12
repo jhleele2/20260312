@@ -2,3 +2,4 @@ flask>=2.0
 openpyxl>=3.0
 werkzeug>=2.0
 python-dotenv>=1.0
+vercel-blob>=0.2.5
