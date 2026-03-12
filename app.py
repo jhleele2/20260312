@@ -59,7 +59,10 @@ if os.environ.get("VERCEL") == "1":
 else:
     app.config["UPLOAD_FOLDER"] = _base_dir / "uploads"
 app.config["DEFAULT_EXCEL"] = _base_dir / "domino_inventory_training.xlsx"
-app.config["UPLOAD_FOLDER"].mkdir(parents=True, exist_ok=True)
+try:
+    app.config["UPLOAD_FOLDER"].mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 
 TEAM_PASSWORD = os.environ.get("TEAM_PASSWORD", "1234")
 
@@ -68,12 +71,19 @@ ALLOWED_EXTENSIONS = {"xlsx", "xls"}
 # 해당 주소로는 발주 메일 발송 안 함 (소문자로 비교)
 BLOCKED_EMAILS = {e.strip().lower() for e in os.environ.get("BLOCKED_EMAILS", "liszzm@naver.com").split(",") if e.strip()}
 
-# 최근 발송일시 저장 (공급업체명 -> "YYYY-MM-DD HH:MM:SS")
+# 최근 발송일시 저장 (공급업체명 -> "YYYY-MM-DD HH:MM:SS"). 배포 환경은 읽기 전용일 수 있으므로 /tmp 사용.
 if os.environ.get("VERCEL") == "1":
     _last_sent_dir = Path("/tmp")
 else:
     _last_sent_dir = _base_dir / "data"
-_last_sent_dir.mkdir(parents=True, exist_ok=True)
+try:
+    _last_sent_dir.mkdir(parents=True, exist_ok=True)
+except OSError:
+    _last_sent_dir = Path("/tmp")
+    try:
+        _last_sent_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
 LAST_SENT_FILE = _last_sent_dir / "last_sent.json"
 
 
@@ -206,13 +216,16 @@ def logout():
 
 @app.errorhandler(500)
 def handle_500(e):
-    return render_template(
-        "index.html",
-        **_index_context(
-            error="서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-            read_only_deploy=os.environ.get("VERCEL") == "1",
-        ),
-    )
+    try:
+        return render_template(
+            "index.html",
+            **_index_context(
+                error="서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+                read_only_deploy=os.environ.get("VERCEL") == "1",
+            ),
+        )
+    except Exception:
+        return "<h1>오류 발생</h1><p>잠시 후 다시 시도해 주세요.</p>", 500
 
 
 @app.before_request
