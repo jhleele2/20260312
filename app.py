@@ -113,7 +113,7 @@ def _save_last_sent(supplier_name: str, dt: datetime):
 
 
 def apply_inventory_overrides(inventory_list):
-    """세션에 저장된 수량 수정(배포 환경용)을 재고 목록에 반영. 발주수량·상태 재계산."""
+    """세션에 저장된 수량 수정(배포 환경용)을 재고 목록에 반영. 발주수량 직접 수정값이 있으면 사용, 없으면 재계산."""
     if inventory_list is None:
         return []
     overrides = session.get("inventory_overrides") or {}
@@ -128,6 +128,11 @@ def apply_inventory_overrides(inventory_list):
             if "current_stock" in o: item["current_stock"] = int(o["current_stock"])
             if "safety_stock" in o: item["safety_stock"] = int(o["safety_stock"])
             if "moq" in o: item["moq"] = int(o["moq"])
+            if "order_quantity" in o:
+                item["order_quantity"] = max(0, int(o["order_quantity"]))
+                item["status"] = "발주 필요" if item["order_quantity"] > 0 else "정상"
+                result.append(item)
+                continue
         current = item.get("current_stock", 0)
         safety = item.get("safety_stock", 0)
         moq = item.get("moq", 0)
@@ -413,19 +418,23 @@ def api_inventory_update():
         current_stock = data.get("current_stock")
         safety_stock = data.get("safety_stock")
         moq = data.get("moq")
+        order_quantity = data.get("order_quantity")
         if current_stock is not None:
             current_stock = int(current_stock)
         if safety_stock is not None:
             safety_stock = int(safety_stock)
         if moq is not None:
             moq = int(moq)
+        if order_quantity is not None:
+            order_quantity = max(0, int(order_quantity))
     except (TypeError, ValueError):
-        return jsonify({"ok": False, "message": "현재고/안전재고/MOQ는 숫자로 입력하세요."})
+        return jsonify({"ok": False, "message": "현재고/안전재고/MOQ/발주수량은 숫자로 입력하세요."})
     code = str(item_code).strip()
     # 배포 환경(Vercel): 엑셀 저장 불가 → 세션에만 저장.
     if os.environ.get("VERCEL") == "1":
         overrides = session.get("inventory_overrides") or {}
-        overrides[code] = {k: v for k, v in ({"current_stock": current_stock, "safety_stock": safety_stock, "moq": moq}).items() if v is not None}
+        base = {k: v for k, v in ({"current_stock": current_stock, "safety_stock": safety_stock, "moq": moq, "order_quantity": order_quantity}).items() if v is not None}
+        overrides[code] = {**(overrides.get(code) or {}), **base}
         session["inventory_overrides"] = overrides
         session.modified = True
     else:
@@ -435,6 +444,7 @@ def api_inventory_update():
             excel_path,
             code,
             current_stock=current_stock, safety_stock=safety_stock, moq=moq,
+            order_quantity=order_quantity,
             name=data.get("name"), spec=data.get("spec"), unit=data.get("unit"), supplier=data.get("supplier"),
         )
         if not ok:

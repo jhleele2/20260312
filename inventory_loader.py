@@ -164,6 +164,7 @@ def update_inventory_item(
     current_stock: Optional[int] = None,
     safety_stock: Optional[int] = None,
     moq: Optional[int] = None,
+    order_quantity: Optional[int] = None,
     name: Optional[str] = None,
     spec: Optional[str] = None,
     unit: Optional[str] = None,
@@ -172,7 +173,7 @@ def update_inventory_item(
     """
     엑셀 재고 시트에서 품목코드에 해당하는 행을 수정합니다.
     반환: (성공 여부, 메시지)
-    엑셀 컬럼(1-based): A=품목코드, B=이름, C=규격, D=단위, E=현재고, F=안전재고, G=MOQ, H=공급업체
+    엑셀 컬럼(1-based): A=품목코드, B=이름, C=규격, D=단위, E=현재고, F=안전재고, G=MOQ, H=공급업체, L=발주수량
     """
     # Vercel 등 배포 환경: 디스크 읽기 전용이라 엑셀 저장 불가
     if os.environ.get("VERCEL") == "1":
@@ -209,6 +210,8 @@ def update_inventory_item(
             inv_ws.cell(row=data_row, column=4, value=str(unit))
         if supplier is not None:
             inv_ws.cell(row=data_row, column=8, value=str(supplier))
+        if order_quantity is not None:
+            inv_ws.cell(row=data_row, column=12, value=int(order_quantity))
         wb.save(path)
         return True, "저장되었습니다."
     except Exception as e:

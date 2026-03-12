@@ -339,17 +339,17 @@
       <thead>
         <tr>
           <th>품목코드</th><th>이름</th><th>규격</th><th>단위</th><th>현재고</th><th>안전재고</th><th>MOQ</th>
-          <th title="자동 계산 (수정 불가)">발주수량</th><th>상태</th><th>공급업체</th><th>최근 발송일시</th>
+          <th>발주수량</th><th>상태</th><th>공급업체</th><th>최근 발송일시</th>
         </tr>
       </thead>
       <tbody>
         {% for i in inventory %}
-        <tr data-code="{{ i.code }}" data-current="{{ i.current_stock }}" data-safety="{{ i.safety_stock }}" data-moq="{{ i.moq }}">
+        <tr data-code="{{ i.code }}" data-current="{{ i.current_stock }}" data-safety="{{ i.safety_stock }}" data-moq="{{ i.moq }}" data-order-qty="{{ i.order_quantity }}">
           <td>{{ i.code }}</td><td>{{ i.name }}</td><td>{{ i.spec }}</td><td>{{ i.unit }}</td>
           <td class="editable-qty" data-field="current_stock" title="클릭하여 수정">{{ i.current_stock }}</td>
           <td class="editable-qty" data-field="safety_stock" title="클릭하여 수정">{{ i.safety_stock }}</td>
           <td class="editable-qty" data-field="moq" title="클릭하여 수정">{{ i.moq }}</td>
-          <td class="cell-order-qty" title="자동 계산 (수정 불가)">{{ i.order_quantity }}</td>
+          <td class="editable-qty cell-order-qty" data-field="order_quantity" title="클릭하여 수정">{{ i.order_quantity }}</td>
           <td class="cell-status {% if i.status == '발주 필요' %}status-warn{% else %}status-ok{% endif %}">{{ i.status }}</td>
           <td>{{ i.supplier }}</td>
           <td>{{ i.last_sent or '-' }}</td>
@@ -488,7 +488,7 @@
         supplierEl.innerHTML = html2;
       }
     }
-    function saveRowQuantities(row, current, safety, moq) {
+    function saveRowQuantities(row, current, safety, moq, orderQuantityOverride) {
       var code = row.dataset.code;
       var payload = {
         excel_path: excelPathForEdit,
@@ -497,6 +497,7 @@
         safety_stock: safety,
         moq: moq
       };
+      if (orderQuantityOverride !== undefined) payload.order_quantity = orderQuantityOverride;
       fetch('{{ url_for("api_inventory_update") }}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -508,6 +509,7 @@
           row.dataset.safety = safety;
           row.dataset.moq = moq;
           if (res.item) {
+            row.dataset.orderQty = res.item.order_quantity;
             var orderQtyCell = row.querySelector('.cell-order-qty');
             var statusCell = row.querySelector('.cell-status');
             if (orderQtyCell) orderQtyCell.textContent = res.item.order_quantity;
@@ -540,13 +542,15 @@
         function finish() {
           var newVal = input.value.trim() !== '' ? parseInt(input.value, 10) : 0;
           if (isNaN(newVal)) newVal = 0;
-          var cur = parseInt(row.dataset.current, 10) || 0, safe = parseInt(row.dataset.safety, 10) || 0, moq = parseInt(row.dataset.moq, 10) || 0;
+          var cur = parseInt(row.dataset.current, 10) || 0, safe = parseInt(row.dataset.safety, 10) || 0, moq = parseInt(row.dataset.moq, 10) || 0, orderQty = parseInt(row.dataset.orderQty, 10) || 0;
+          var orderOverride = undefined;
           if (field === 'current_stock') cur = newVal;
           else if (field === 'safety_stock') safe = newVal;
           else if (field === 'moq') moq = newVal;
+          else if (field === 'order_quantity') { orderQty = newVal; orderOverride = newVal; }
           td.removeChild(input);
-          td.textContent = (field === 'current_stock' ? cur : field === 'safety_stock' ? safe : moq);
-          saveRowQuantities(row, cur, safe, moq);
+          td.textContent = (field === 'current_stock' ? cur : field === 'safety_stock' ? safe : field === 'moq' ? moq : orderQty);
+          saveRowQuantities(row, cur, safe, moq, orderOverride);
         }
         input.addEventListener('blur', finish);
         input.addEventListener('keydown', function(ev) {
