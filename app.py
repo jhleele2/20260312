@@ -123,6 +123,43 @@ def apply_inventory_overrides(inventory_list):
     return result
 
 
+def _item_with_order_status(item):
+    """item에 발주수량·상태 계산해 넣어서 반환."""
+    d = dict(item)
+    current = d.get("current_stock", 0)
+    safety = d.get("safety_stock", 0)
+    moq = d.get("moq", 0)
+    order_qty = max(0, max(moq, safety - current))
+    d["order_quantity"] = order_qty
+    d["status"] = "발주 필요" if order_qty > 0 else "정상"
+    return d
+
+
+def get_effective_inventory(excel_path: str):
+    """엑셀 + 세션 오버라이드 + 배포 환경 세션 추가 항목을 합친 재고 목록 반환. last_sent 포함."""
+    data = load_all(excel_path)
+    if data.get("error"):
+        return []
+    inventory = apply_inventory_overrides(data["inventory"])
+    last_sent_map = _load_last_sent()
+    for item in inventory:
+        item["last_sent"] = last_sent_map.get((item.get("supplier") or "").strip(), "") or ""
+    added = session.get("inventory_added_items") or []
+    existing_codes = { (i.get("code") or "").strip() for i in inventory }
+    for a in added:
+        code = (a.get("code") or "").strip()
+        if not code or code in existing_codes:
+            continue
+        existing_codes.add(code)
+        item = _item_with_order_status(a)
+        item["last_sent"] = last_sent_map.get((item.get("supplier") or "").strip(), "") or ""
+        item.setdefault("contact", a.get("contact", ""))
+        item.setdefault("supplier_email", a.get("supplier_email", ""))
+        item.setdefault("lead_time_days", a.get("lead_time_days", 0))
+        inventory.append(item)
+    return inventory
+
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[-1].lower() in ALLOWED_EXTENSIONS
 
@@ -182,10 +219,7 @@ def index():
         return render_template(
             "index.html", error=data["error"], orders=[], inventory=[], summary=None, read_only_deploy=os.environ.get("VERCEL") == "1"
         )
-    inventory = apply_inventory_overrides(data["inventory"])
-    last_sent_map = _load_last_sent()
-    for item in inventory:
-        item["last_sent"] = last_sent_map.get((item.get("supplier") or "").strip(), "") or ""
+    inventory = get_effective_inventory(excel_path)
     orders = get_orders_by_supplier(inventory)
     need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
     total_items = len(inventory)
@@ -278,7 +312,7 @@ def api_inventory_update():
 
 @app.route("/api/inventory/add", methods=["POST"])
 def api_inventory_add():
-    """재고 품목 한 건 추가. 엑셀 재고 시트에 행 추가."""
+    """재고 품목 한 건 추가. 로컬은 엑셀에 저장, 배포(Vercel)는 세션에 저장해 화면·발송·엑셀내보내기에 반영."""
     data = request.get_json() or {}
     excel_path = data.get("excel_path") or str(app.config["DEFAULT_EXCEL"])
     if not Path(excel_path).exists():
@@ -293,6 +327,30 @@ def api_inventory_add():
         lead_time_days = int(data.get("lead_time_days", 0))
     except (TypeError, ValueError):
         return jsonify({"ok": False, "message": "현재고/안전재고/MOQ/리드타임은 숫자로 입력하세요."})
+    if os.environ.get("VERCEL") == "1":
+        base_data = load_all(excel_path)
+        existing_codes = {(i.get("code") or "").strip() for i in (base_data.get("inventory") or [])}
+        added = session.get("inventory_added_items") or []
+        for a in added:
+            existing_codes.add((a.get("code") or "").strip())
+        if code in existing_codes:
+            return jsonify({"ok": False, "message": f"품목코드 '{code}'가 이미 존재합니다."})
+        new_item = {
+            "code": code,
+            "name": (data.get("name") or "").strip(),
+            "spec": (data.get("spec") or "").strip(),
+            "unit": (data.get("unit") or "").strip(),
+            "current_stock": current_stock,
+            "safety_stock": safety_stock,
+            "moq": moq,
+            "supplier": (data.get("supplier") or "").strip(),
+            "contact": (data.get("contact") or "").strip(),
+            "supplier_email": (data.get("supplier_email") or "").strip(),
+            "lead_time_days": lead_time_days,
+        }
+        session.setdefault("inventory_added_items", []).append(new_item)
+        session.modified = True
+        return jsonify({"ok": True, "message": "항목이 추가되었습니다. 화면·메일 발송·엑셀 내보내기에 반영됩니다."})
     ok, msg = add_inventory_item(
         excel_path,
         code=code,
@@ -311,14 +369,10 @@ def api_inventory_add():
 
 
 def _build_export_inventory(excel_path: str):
-    """현재 재고(오버라이드+최근발송일시 반영)로 엑셀 바이트 생성."""
-    data = load_all(excel_path)
-    if data.get("error"):
-        return None, data["error"]
-    inventory = apply_inventory_overrides(data["inventory"])
-    last_sent_map = _load_last_sent()
-    for item in inventory:
-        item["last_sent"] = last_sent_map.get((item.get("supplier") or "").strip(), "") or ""
+    """현재 재고(오버라이드+세션 추가 항목+최근발송일시)로 엑셀 바이트 생성."""
+    inventory = get_effective_inventory(excel_path)
+    if not inventory and load_all(excel_path).get("error"):
+        return None, load_all(excel_path)["error"]
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "재고현황"
@@ -390,9 +444,8 @@ def api_send_orders():
     data = load_all(excel_path)
     if data.get("error"):
         return jsonify({"ok": False, "message": data["error"]})
-    inventory = apply_inventory_overrides(data["inventory"])
+    inventory = get_effective_inventory(excel_path)
     orders = get_orders_by_supplier(inventory)
-    # Suppliers 시트에서 공급업체명 → 이메일 보정 (Inventory에 이메일이 비어 있을 때 사용)
     supplier_email_map = {}
     for s in data.get("suppliers", []):
         name = (s.get("name") or "").strip()

@@ -22,9 +22,11 @@
       --muted: #888888;
       --link: #2563eb;
       --link-hover: #1d4ed8;
-      --primary: #b71c1c;
-      --primary-hover: #8b0000;
-      --primary-thin: rgba(183, 28, 28, 0.06);
+      --primary: #1a1a1a;
+      --primary-hover: #333333;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --primary-thin: rgba(0, 0, 0, 0.05);
       --success: #16a34a;
       --warn: #ea580c;
       --error: #c62828;
@@ -92,6 +94,8 @@
       border-radius: var(--radius-btn);
     }
     .btn-send:hover { background: var(--primary-hover); }
+    .btn-accent { background: var(--accent); color: #fff; border: none; }
+    .btn-accent:hover { background: var(--accent-hover); }
     .error { color: var(--error); font-size: 0.875rem; margin: 0.5rem 0; font-weight: 500; }
     .summary {
       display: grid;
@@ -137,12 +141,12 @@
     td.editable-qty:hover { background: var(--primary-thin) !important; }
     td.editable-qty input {
       width: 100%; max-width: 4rem; padding: 0.35rem 0.5rem; font-size: inherit;
-      background: #fff; border: 1px solid var(--primary); color: var(--text);
+      background: #fff; border: 1px solid var(--accent); color: var(--text);
       border-radius: var(--radius-sm); font-family: inherit; font-weight: 500;
     }
     .send-result-one { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
-    .btn-add-item { background: #fff; color: var(--text); border: 1px solid var(--border); }
-    .btn-add-item:hover { background: #f8f8f8; border-color: #ccc; }
+    .btn-add-item { background: var(--accent); color: #fff; border: none; }
+    .btn-add-item:hover { background: var(--accent-hover); }
     .btn-export-excel { background: var(--primary); color: #fff; border: none; }
     .btn-export-excel:hover { background: var(--primary-hover); }
     .modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; }
@@ -154,8 +158,8 @@
     .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
     .btn-modal-cancel { background: #fff; color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-btn); }
     .btn-modal-cancel:hover { background: #f5f5f5; }
-    .modal-actions .btn-primary { background: var(--primary); color: #fff; border: none; border-radius: var(--radius-btn); }
-    .modal-actions .btn-primary:hover { background: var(--primary-hover); }
+    .modal-actions .btn-primary { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-btn); }
+    .modal-actions .btn-primary:hover { background: var(--accent-hover); }
   </style>
 </head>
 <body>
