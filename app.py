@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 from time import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from io import BytesIO
 import openpyxl
 
@@ -85,8 +85,11 @@ def _load_last_sent() -> dict:
         return {}
 
 
+KST = timezone(timedelta(hours=9))
+
+
 def _save_last_sent(supplier_name: str, dt: datetime):
-    """해당 공급업체 최근 발송일시 갱신."""
+    """해당 공급업체 최근 발송일시 갱신 (저장은 KST 문자열)."""
     data = _load_last_sent()
     data[supplier_name] = dt.strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -420,14 +423,18 @@ def api_send_orders():
             smtp_host=smtp_host, smtp_port=smtp_port,
             bcc=os.environ.get("SMTP_BCC") or sender_email,
         )
+        now_kst = datetime.now(KST)
         if ok:
-            _save_last_sent(order["supplier_name"], datetime.now())
-        results.append({
+            _save_last_sent(order["supplier_name"], now_kst)
+        result = {
             "supplier": order["supplier_name"],
             "email": order["email"],
             "ok": ok,
             "message": msg,
-        })
+        }
+        if ok:
+            result["last_sent"] = now_kst.strftime("%Y-%m-%d %H:%M:%S")
+        results.append(result)
     return jsonify({"ok": True, "results": results})
 
 

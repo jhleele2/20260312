@@ -4,69 +4,75 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>재고·발주 자동화</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
+    @font-face {
+      font-family: "Youandi Modern";
+      src: url("{{ url_for('static', filename='fonts/fontYouandiModernTR.ttf') }}") format("truetype");
+      font-weight: normal;
+      font-style: normal;
+      font-display: swap;
+    }
     :root {
-      --bg: #f2f2f7;
+      --bg: #f5f5f7;
       --card: #ffffff;
-      --border: #e5e5ea;
-      --text: #1d1d1f;
-      --text-soft: #3a3a3c;
-      --muted: #8e8e93;
-      --accent: #1d1d1f;
-      --accent-hover: #2c2c2e;
-      --primary: #c41e3a;
-      --primary-hover: #a01830;
-      --success: #34c759;
-      --warn: #ff9500;
-      --error: #ff3b30;
-      --radius: 16px;
-      --radius-sm: 12px;
-      --radius-pill: 999px;
-      --shadow: 0 2px 16px rgba(0,0,0,0.06);
-      --shadow-hover: 0 4px 24px rgba(0,0,0,0.08);
+      --border: #e0e0e0;
+      --text: #111111;
+      --text-soft: #333333;
+      --muted: #6b6b6b;
+      --accent: #111111;
+      --accent-hover: #333333;
+      --primary: #b71c1c;
+      --primary-hover: #8b0000;
+      --primary-thin: rgba(183, 28, 28, 0.08);
+      --success: #2e7d32;
+      --warn: #ed6c02;
+      --error: #c62828;
+      --radius: 8px;
+      --radius-sm: 6px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06);
+      --shadow-hover: 0 2px 8px rgba(0,0,0,0.08);
     }
     * { box-sizing: border-box; }
     body {
-      font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: "Youandi Modern", "Pretendard", -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
       background: var(--bg);
       color: var(--text);
       margin: 0;
       padding: 0;
-      line-height: 1.5;
+      line-height: 1.55;
       min-height: 100vh;
       -webkit-font-smoothing: antialiased;
+      letter-spacing: -0.01em;
     }
-    .page { padding: 1.5rem 1.75rem; max-width: 1200px; margin: 0 auto; }
+    .page { padding: 2rem 2.25rem; max-width: 1120px; margin: 0 auto; }
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 1rem;
-      margin-bottom: 1.5rem;
-      padding-bottom: 1.25rem;
-      border-bottom: 1px solid var(--border);
+      margin-bottom: 2rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 2px solid var(--text);
     }
-    h1 { font-size: 1.5rem; margin: 0; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
-    h2 { font-size: 1rem; font-weight: 600; margin: 1.75rem 0 0.75rem; color: var(--text-soft); letter-spacing: -0.01em; }
-    .path-hint { font-size: 0.8125rem; color: var(--muted); margin-top: 0.25rem; }
+    h1 { font-size: 1.5rem; margin: 0; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
+    h2 { font-size: 0.8125rem; font-weight: 600; margin: 2rem 0 0.75rem; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
+    .path-hint { font-size: 0.8125rem; color: var(--muted); margin-top: 0.35rem; letter-spacing: 0.01em; }
     .path-hint a { color: var(--muted); text-decoration: none; }
-    .path-hint a:hover { color: var(--text-soft); text-decoration: underline; }
-    .upload-bar { margin-bottom: 1.5rem; }
+    .path-hint a:hover { color: var(--primary); text-decoration: underline; }
+    .upload-bar { margin-bottom: 1.75rem; }
     .upload-bar form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-    .upload-bar input[type="file"] { font-size: 0.875rem; color: var(--text-soft); }
+    .upload-bar input[type="file"] { font-size: 0.875rem; color: var(--text-soft); font-family: inherit; }
     .btn {
-      padding: 0.625rem 1.25rem;
-      font-size: 0.875rem;
+      padding: 0.5rem 1.25rem;
+      font-size: 0.8125rem;
       font-weight: 600;
       border: none;
-      border-radius: var(--radius-pill);
+      border-radius: var(--radius);
       cursor: pointer;
       transition: background 0.2s, transform 0.05s;
       font-family: inherit;
+      letter-spacing: 0.02em;
     }
     .upload-bar .btn { background: var(--accent); color: #fff; }
     .upload-bar .btn:hover { background: var(--accent-hover); }
@@ -77,6 +83,7 @@
       margin-top: 0.75rem;
       padding: 0.5rem 1rem;
       font-size: 0.8125rem;
+      border-radius: var(--radius);
     }
     .btn-send:hover { background: var(--primary-hover); }
     .error { color: var(--error); font-size: 0.875rem; margin: 0.5rem 0; font-weight: 500; }
@@ -84,20 +91,21 @@
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       gap: 1rem;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.75rem;
     }
     @media (max-width: 640px) { .summary { grid-template-columns: repeat(2, 1fr); } }
     .summary .card {
       background: var(--card);
       border-radius: var(--radius);
-      padding: 1.25rem 1.25rem;
+      padding: 1.25rem 1.35rem;
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
-      transition: box-shadow 0.2s;
+      border-left: 3px solid var(--primary);
+      transition: box-shadow 0.2s, border-color 0.2s;
     }
-    .summary .card:hover { box-shadow: var(--shadow-hover); }
-    .summary .card .label { font-size: 0.75rem; color: var(--muted); font-weight: 500; margin-bottom: 0.35rem; letter-spacing: 0.01em; }
-    .summary .card .value { font-size: 1.5rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+    .summary .card:hover { box-shadow: var(--shadow-hover); border-left-color: var(--primary-hover); }
+    .summary .card .label { font-size: 0.6875rem; color: var(--muted); font-weight: 600; margin-bottom: 0.4rem; letter-spacing: 0.06em; text-transform: uppercase; }
+    .summary .card .value { font-size: 1.5rem; font-weight: 700; color: var(--text); letter-spacing: -0.03em; }
     .table-wrap {
       background: var(--card);
       border-radius: var(--radius);
@@ -106,11 +114,11 @@
       margin-bottom: 1.5rem;
       border: 1px solid var(--border);
     }
-    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
     th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
-    th { background: #fafafa; color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: none; letter-spacing: 0.02em; }
+    th { background: #fafafa; color: var(--muted); font-weight: 600; font-size: 0.6875rem; letter-spacing: 0.05em; text-transform: uppercase; }
     tr:last-child td { border-bottom: none; }
-    tr:hover td { background: #fafafa; }
+    tr:hover td { background: var(--primary-thin); }
     .status-ok { color: var(--success); font-weight: 600; }
     .status-warn { color: var(--warn); font-weight: 600; }
     .orders-section { margin-top: 2rem; }
@@ -121,34 +129,35 @@
       margin-bottom: 1rem;
       box-shadow: var(--shadow);
       border: 1px solid var(--border);
+      border-left: 3px solid var(--primary);
       transition: box-shadow 0.2s;
     }
     .order-block:hover { box-shadow: var(--shadow-hover); }
-    .order-block h3 { margin: 0 0 0.5rem; font-size: 1rem; font-weight: 700; color: var(--text); }
-    .order-block .meta { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.75rem; line-height: 1.45; }
-    .order-block ul { margin: 0 0 0.75rem; padding-left: 1.25rem; color: var(--text-soft); font-size: 0.875rem; }
+    .order-block h3 { margin: 0 0 0.5rem; font-size: 0.9375rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+    .order-block .meta { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.75rem; line-height: 1.5; letter-spacing: 0.01em; }
+    .order-block ul { margin: 0 0 0.75rem; padding-left: 1.25rem; color: var(--text-soft); font-size: 0.8125rem; }
     td.editable-qty { cursor: pointer; min-width: 3.5rem; }
-    td.editable-qty:hover { background: #f0f0f5 !important; }
+    td.editable-qty:hover { background: var(--primary-thin) !important; }
     td.editable-qty input {
       width: 100%; max-width: 4rem; padding: 0.35rem 0.5rem; font-size: inherit;
       background: var(--card); border: 2px solid var(--primary); color: var(--text);
       border-radius: var(--radius-sm); font-family: inherit; font-weight: 500;
     }
-    .send-result-one { font-size: 0.8125rem; color: var(--muted); margin-top: 0.25rem; }
-    .btn-add-item { background: var(--accent); color: #fff; }
+    .send-result-one { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; letter-spacing: 0.01em; }
+    .btn-add-item { background: var(--accent); color: #fff; border-radius: var(--radius); }
     .btn-add-item:hover { background: var(--accent-hover); }
-    .btn-export-excel { background: var(--primary); color: #fff; }
+    .btn-export-excel { background: var(--primary); color: #fff; border-radius: var(--radius); }
     .btn-export-excel:hover { background: var(--primary-hover); }
-    .modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; }
-    .modal-content { background: var(--card); border-radius: var(--radius); padding: 1.5rem; max-width: 480px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
-    .modal-content h3 { font-size: 1.125rem; margin-bottom: 1rem; }
-    .form-grid { display: grid; grid-template-columns: 120px 1fr; gap: 0.5rem 1rem; align-items: center; margin-bottom: 1rem; font-size: 0.875rem; }
-    .form-grid label { color: var(--text-soft); }
-    .form-grid input { padding: 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: inherit; }
+    .modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.45); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    .modal-content { background: var(--card); border-radius: var(--radius); padding: 1.5rem; max-width: 480px; width: 100%; box-shadow: 0 4px 24px rgba(0,0,0,0.15); border: 1px solid var(--border); }
+    .modal-content h3 { font-size: 1.0625rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: -0.02em; }
+    .form-grid { display: grid; grid-template-columns: 110px 1fr; gap: 0.5rem 1rem; align-items: center; margin-bottom: 1rem; font-size: 0.8125rem; }
+    .form-grid label { color: var(--text-soft); font-weight: 500; }
+    .form-grid input { padding: 0.5rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: inherit; }
     .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
-    .btn-modal-cancel { background: var(--border); color: var(--text); }
-    .btn-modal-cancel:hover { background: #ddd; }
-    .modal-actions .btn-primary { background: var(--primary); color: #fff; }
+    .btn-modal-cancel { background: #eee; color: var(--text); border-radius: var(--radius); }
+    .btn-modal-cancel:hover { background: #e0e0e0; }
+    .modal-actions .btn-primary { background: var(--primary); color: #fff; border-radius: var(--radius); }
     .modal-actions .btn-primary:hover { background: var(--primary-hover); }
   </style>
 </head>
@@ -394,6 +403,14 @@
             var r = data.results[0];
             if (resultEl) resultEl.textContent = r.ok ? '발송 완료' : '실패: ' + r.message;
             if (resultEl) resultEl.style.color = r.ok ? 'var(--success)' : '#f85149';
+            if (r.ok && r.last_sent) {
+              document.querySelectorAll('.table-wrap tbody tr').forEach(function(tr) {
+                var cells = tr.querySelectorAll('td');
+                if (cells.length > 10 && cells[9].textContent.trim() === r.supplier) {
+                  cells[10].textContent = r.last_sent;
+                }
+              });
+            }
           } else if (resultEl) {
             resultEl.textContent = '오류: ' + (data.message || '알 수 없음');
             resultEl.style.color = '#f85149';

@@ -54,6 +54,15 @@ python app.py
 3. 변수 추가 후 **Redeploy** 한 번 실행해야 적용됩니다.
 4. 배포 URL 접속 → 팀 비밀번호 입력 후 사용.
 
+**Git 푸시 후 배포가 반영되지 않을 때**
+
+- Vercel은 GitHub 저장소를 연결해 두면 **푸시할 때마다 자동으로 새 배포**를 만듭니다.
+- 반영이 안 보이면:
+  1. [Vercel 대시보드](https://vercel.com/dashboard) → 해당 프로젝트 → **Deployments** 탭에서 **가장 최근 배포가 “Ready”인지** 확인하세요. 실패(Error)면 로그를 열어 빌드/실행 오류를 확인하세요.
+  2. **수동 재배포**: Deployments에서 최신 항목 오른쪽 **⋯** → **Redeploy** (또는 **Redeploy** 버튼). 필요하면 **“Clear cache and deploy”**로 캐시 없이 다시 배포하세요.
+  3. **브라우저 캐시**: 배포는 됐는데 화면만 안 바뀌면 **강력 새로고침**(Ctrl+Shift+R 또는 Cmd+Shift+R) 또는 시크릿 창으로 접속해 보세요.
+  4. 저장소 연결이 **이 프로젝트의 GitHub repo**(예: `jhleele2/20260312`)와 **main 브랜치**로 되어 있는지 **Settings → Git**에서 확인하세요.
+
 ## 환경 변수 (.env)
 
 | 변수 | 설명 | 기본값 |
