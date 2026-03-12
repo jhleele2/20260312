@@ -88,9 +88,53 @@ def test_upload_reflected():
     return True
 
 
+def test_alternate_header_format():
+    """재료명·현재재고·거래처·발주권장수량 등 다른 헤더 형식이 인식되는지 확인."""
+    sys.path.insert(0, str(ROOT))
+    from inventory_loader import load_all
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    # 이미지와 같은 컬럼명 사용
+    headers = [
+        "품목코드", "재료명", "규격", "단위", "현재재고", "안전재고", "MOQ",
+        "거래처", "알림담당자", "거래처이메일", "리드타임(일)",
+        "부족수량", "발주권장수량", "상태",
+    ]
+    for col, h in enumerate(headers, 1):
+        ws.cell(row=1, column=col, value=h)
+    ws.cell(row=2, column=1, value="ING001")
+    ws.cell(row=2, column=2, value="도우볼")
+    ws.cell(row=2, column=5, value=120)
+    ws.cell(row=2, column=6, value=180)
+    ws.cell(row=2, column=7, value=100)
+    ws.cell(row=2, column=8, value="도미노푸드서플라이")
+    ws.cell(row=2, column=13, value=100)  # 발주권장수량
+    ws.cell(row=2, column=14, value="발주 필요")
+    path = ROOT / "uploads" / "test_alt_headers.xlsx"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(str(path))
+    try:
+        data = load_all(str(path))
+        assert not data.get("error"), data.get("error")
+        inv = data.get("inventory") or []
+        assert len(inv) >= 1, "inventory should have at least one row"
+        first = inv[0]
+        assert first.get("code") == "ING001"
+        assert "도우볼" in first.get("name", "")
+        assert first.get("current_stock") == 120
+        assert first.get("safety_stock") == 180
+        assert first.get("supplier", "").strip() != ""
+        print("OK: Alternate header format (재료명/현재재고/거래처/발주권장수량) recognized.")
+    finally:
+        if path.exists():
+            path.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     try:
         test_upload_reflected()
+        test_alternate_header_format()
         print("All checks passed.")
     except Exception as e:
         print(f"FAIL: {e}")

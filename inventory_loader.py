@@ -48,39 +48,95 @@ def load_suppliers(ws) -> List[Dict[str, Any]]:
     return result
 
 
+def _row_val(row: tuple, col_map: Dict[str, int], key: str, default_any=None):
+    """헤더 맵으로 행에서 값 추출. 없으면 default_any 또는 빈 문자열/0."""
+    idx = col_map.get(key)
+    if idx is None or idx >= len(row):
+        return default_any if default_any is not None else (0 if "고" in key or key in ("MOQ", "리드타임(일)", "발주수량", "발주기준수량") else "")
+    v = row[idx]
+    if v is None:
+        return default_any if default_any is not None else (0 if key in ("현재고", "안전재고", "MOQ", "리드타임(일)", "발주수량", "발주기준수량") else "")
+    return v
+
+
 def load_inventory(ws) -> List[Dict[str, Any]]:
     rows = list(ws.iter_rows(values_only=True))
     if len(rows) < 2:
         return []
+    header_row = rows[0]
+    col_map = _col_index_from_header_row(header_row)
+    # 품목코드 없으면 기존 고정 인덱스 사용
+    use_map = "품목코드" in col_map
     result = []
     for row in rows[1:]:
-        if not row or _cell_str(row[0]) == "":
+        if not row:
+            continue
+        if use_map:
+            code = _cell_str(_row_val(row, col_map, "품목코드", ""))
+        else:
+            code = _cell_str(row[0]) if len(row) > 0 else ""
+        if code == "":
             continue
         try:
-            current = int(row[4]) if row[4] is not None else 0
-            safety = int(row[5]) if row[5] is not None else 0
-            moq = int(row[6]) if row[6] is not None else 0
+            if use_map:
+                def _int(v, d=0):
+                    if v is None or (isinstance(v, str) and not v.strip()):
+                        return d
+                    try:
+                        return int(float(v))
+                    except (TypeError, ValueError):
+                        return d
+                current = _int(_row_val(row, col_map, "현재고", 0))
+                safety = _int(_row_val(row, col_map, "안전재고", 0))
+                moq = _int(_row_val(row, col_map, "MOQ", 0))
+                order_from_sheet = _row_val(row, col_map, "발주수량")
+                if order_from_sheet is not None and str(order_from_sheet).strip() != "":
+                    order_qty = max(0, _int(order_from_sheet, 0))
+                else:
+                    order_qty = max(0, max(moq, safety - current))
+            else:
+                current = int(row[4]) if row[4] is not None else 0
+                safety = int(row[5]) if row[5] is not None else 0
+                moq = int(row[6]) if row[6] is not None else 0
+                order_qty = max(0, max(moq, safety - current))
         except (TypeError, ValueError):
             current, safety, moq = 0, 0, 0
-        # 발주수량 = MAX(MOQ, 안전재고 - 현재고), 최소 0
-        order_qty = max(0, max(moq, safety - current))
+            order_qty = 0
         needs_order = order_qty > 0
-        result.append({
-            "code": _cell_str(row[0]),
-            "name": _cell_str(row[1]) if len(row) > 1 else "",
-            "spec": _cell_str(row[2]) if len(row) > 2 else "",
-            "unit": _cell_str(row[3]) if len(row) > 3 else "",
-            "current_stock": current,
-            "safety_stock": safety,
-            "moq": moq,
-            "supplier": _cell_str(row[7]) if len(row) > 7 else "",
-            "contact": _cell_str(row[8]) if len(row) > 8 else "",
-            "supplier_email": _cell_str(row[9]) if len(row) > 9 else "",
-            "lead_time_days": int(row[10]) if len(row) > 10 and row[10] is not None else 0,
-            "order_quantity": order_qty,
-            "status": "발주 필요" if needs_order else "정상",
-            "order_message": _cell_str(row[14]) if len(row) > 14 else "",
-        })
+        if use_map:
+            result.append({
+                "code": code,
+                "name": _cell_str(_row_val(row, col_map, "이름", "")),
+                "spec": _cell_str(_row_val(row, col_map, "규격", "")),
+                "unit": _cell_str(_row_val(row, col_map, "단위", "")),
+                "current_stock": current,
+                "safety_stock": safety,
+                "moq": moq,
+                "supplier": _cell_str(_row_val(row, col_map, "공급업체", "")),
+                "contact": _cell_str(_row_val(row, col_map, "담당자명", "")),
+                "supplier_email": _cell_str(_row_val(row, col_map, "공급업체이메일", "")),
+                "lead_time_days": int(_row_val(row, col_map, "리드타임(일)", 0) or 0),
+                "order_quantity": order_qty,
+                "status": "발주 필요" if needs_order else "정상",
+                "order_message": _cell_str(_row_val(row, col_map, "발주메시지", "")),
+            })
+        else:
+            result.append({
+                "code": code,
+                "name": _cell_str(row[1]) if len(row) > 1 else "",
+                "spec": _cell_str(row[2]) if len(row) > 2 else "",
+                "unit": _cell_str(row[3]) if len(row) > 3 else "",
+                "current_stock": current,
+                "safety_stock": safety,
+                "moq": moq,
+                "supplier": _cell_str(row[7]) if len(row) > 7 else "",
+                "contact": _cell_str(row[8]) if len(row) > 8 else "",
+                "supplier_email": _cell_str(row[9]) if len(row) > 9 else "",
+                "lead_time_days": int(row[10]) if len(row) > 10 and row[10] is not None else 0,
+                "order_quantity": order_qty,
+                "status": "발주 필요" if needs_order else "정상",
+                "order_message": _cell_str(row[14]) if len(row) > 14 else "",
+            })
     return result
 
 
@@ -114,9 +170,44 @@ def _find_inventory_sheet(wb):
         if not first_row:
             continue
         first_str = " ".join(_cell_str(c) for c in first_row)
-        if "품목코드" in first_str or "현재고" in first_str or "안전재고" in first_str:
+        # 재료명·현재재고·거래처·발주권장수량 등 다양한 엑셀 형식 인식
+        if "품목코드" in first_str or "현재고" in first_str or "현재재고" in first_str or "안전재고" in first_str:
             return ws
     return None
+
+
+# 재고 시트 컬럼 헤더 동의어 (다양한 엑셀 형식 지원)
+INVENTORY_HEADER_ALIASES: Dict[str, List[str]] = {
+    "품목코드": ["품목코드"],
+    "이름": ["이름", "재료명", "품목명"],
+    "규격": ["규격"],
+    "단위": ["단위"],
+    "현재고": ["현재고", "현재재고"],
+    "안전재고": ["안전재고"],
+    "MOQ": ["MOQ"],
+    "공급업체": ["공급업체", "거래처"],
+    "담당자명": ["담당자명", "알림담당자", "담당자"],
+    "공급업체이메일": ["공급업체이메일", "거래처이메일", "이메일"],
+    "리드타임(일)": ["리드타임(일)"],
+    "발주수량": ["발주수량", "발주권장수량", "권장수량"],
+    "발주기준수량": ["발주기준수량"],
+    "상태": ["상태"],
+    "발주메시지": ["발주메시지"],
+}
+
+
+def _col_index_from_header_row(header_row: List[Any]) -> Dict[str, int]:
+    """첫 행(헤더)에서 컬럼명별 인덱스 맵 반환. 동의어 지원."""
+    col_map = {}
+    for idx, cell in enumerate(header_row):
+        raw = _cell_str(cell).strip()
+        if not raw:
+            continue
+        for canonical, names in INVENTORY_HEADER_ALIASES.items():
+            if raw in names or raw == canonical:
+                col_map[canonical] = idx
+                break
+    return col_map
 
 
 def load_all(excel_path: str) -> Dict[str, Any]:
