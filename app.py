@@ -276,10 +276,16 @@ def index():
         file_param = request.args.get("file")
         if file_param and ".." not in file_param:
             session["uploaded_file"] = file_param
+        # 업로드한 파일명(URL 또는 세션)을 우선 사용해 경로 해석
         excel_path = resolve_excel_path(file_param or session.get("uploaded_file") or "")
-        if not Path(excel_path).exists():
-            session.pop("uploaded_file", None)
+        try:
+            if not Path(excel_path).resolve().exists():
+                excel_path = str(Path(app.config["DEFAULT_EXCEL"]).resolve())
+                if not Path(excel_path).exists():
+                    session.pop("uploaded_file", None)
+        except (OSError, RuntimeError):
             excel_path = str(app.config["DEFAULT_EXCEL"])
+            session.pop("uploaded_file", None)
 
         data = load_all(excel_path)
         if data.get("error"):
@@ -389,18 +395,24 @@ def resolve_excel_path(client_path: str) -> str:
         raw = session.get("uploaded_file") or ""
     if raw and ".." in raw:
         raw = ""
-    upload_dir = Path(app.config["UPLOAD_FOLDER"])
-    default = str(app.config["DEFAULT_EXCEL"])
+    upload_dir = Path(app.config["UPLOAD_FOLDER"]).resolve()
+    default_path = Path(app.config["DEFAULT_EXCEL"]).resolve()
+    default = str(default_path)
     p = Path(raw) if raw else None
-    if p and p.is_absolute() and p.exists():
-        return str(p)
+    if p and p.is_absolute():
+        try:
+            resolved = p.resolve()
+            if resolved.exists():
+                return str(resolved)
+        except (OSError, RuntimeError):
+            pass
     if raw:
         name = Path(raw).name
-        cand = upload_dir / name
+        cand = (upload_dir / name).resolve()
         if cand.exists():
             return str(cand)
     if session.get("uploaded_file"):
-        cand = upload_dir / session["uploaded_file"]
+        cand = (upload_dir / session["uploaded_file"]).resolve()
         if cand.exists():
             return str(cand)
     return default
