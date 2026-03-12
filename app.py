@@ -314,14 +314,24 @@ def index():
             ),
         )
     except Exception as e:
-        return render_template(
-            "index.html",
-            **_index_context(
-                error=f"오류가 발생했습니다: {str(e)}",
-                excel_path=excel_path,
-                read_only_deploy=os.environ.get("VERCEL") == "1",
-            ),
-        )
+        err_msg = str(e)
+        try:
+            return render_template(
+                "index.html",
+                **_index_context(
+                    error=f"오류가 발생했습니다: {err_msg}",
+                    excel_path=excel_path,
+                    read_only_deploy=os.environ.get("VERCEL") == "1",
+                ),
+            )
+        except Exception:
+            return (
+                "<!DOCTYPE html><html><head><meta charset='utf-8'><title>오류</title></head><body>"
+                "<h1>오류 발생</h1><p>잠시 후 다시 시도해 주세요.</p>"
+                "<pre style='background:#f5f5f5;padding:1rem;font-size:0.875rem;'>" + err_msg.replace("<", "&lt;") + "</pre>"
+                "</body></html>",
+                200,
+            )
 
 
 @app.route("/upload", methods=["POST"])
