@@ -411,6 +411,47 @@ def upload():
         blob_url = _upload_to_vercel_blob(safe_name, file_bytes)
         if blob_url:
             session["uploaded_blob_url"] = blob_url
+
+    # JSON 요청이면 업로드 직후 파싱 데이터를 반환 (리다이렉트 없이 화면 반영용)
+    if request.accept_mimetypes.best_match(["application/json", "text/html"]) == "application/json":
+        try:
+            data = load_all(str(path))
+            if data.get("error"):
+                return jsonify({"ok": False, "message": data["error"]}), 400
+            inventory = get_effective_inventory(str(path))
+            orders = get_orders_by_supplier(inventory)
+            need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
+            total_items = len(inventory)
+            total_order_qty = sum(i.get("order_quantity", 0) for i in inventory)
+            summary = {
+                "total_items": total_items,
+                "need_order_count": need_count,
+                "total_order_quantity": total_order_qty,
+                "supplier_count": len(orders),
+            }
+            chart_by_status = [
+                {"label": "정상", "count": total_items - need_count, "pct": round(100 * (total_items - need_count) / total_items, 1) if total_items else 0},
+                {"label": "발주 필요", "count": need_count, "pct": round(100 * need_count / total_items, 1) if total_items else 0},
+            ]
+            max_supplier_qty = max((o.get("total_order_quantity") or 0 for o in orders), default=1)
+            chart_by_supplier = [
+                {"name": o.get("supplier_name") or "(미지정)", "qty": o.get("total_order_quantity") or 0, "pct": round(100 * (o.get("total_order_quantity") or 0) / max_supplier_qty, 1) if max_supplier_qty else 0}
+                for o in orders
+            ]
+            return jsonify({
+                "ok": True,
+                "message": "업로드되었습니다. 재고현황에 반영되었습니다.",
+                "excel_filename": safe_name,
+                "excel_path_for_api": safe_name,
+                "inventory": inventory,
+                "orders": orders,
+                "summary": summary,
+                "chart_by_status": chart_by_status,
+                "chart_by_supplier": chart_by_supplier,
+            })
+        except Exception as e:
+            return jsonify({"ok": False, "message": str(e)}), 500
+
     return redirect(url_for("index", file=safe_name))
 
 

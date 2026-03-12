@@ -277,11 +277,11 @@
     <a href="{{ url_for('logout') }}">로그아웃</a>
   </header>
   <div class="page">
-  <p class="path-hint">현재 적용 파일: <strong>{{ excel_filename|default('domino_inventory_training.xlsx') }}</strong> · 업로드 시 위 파일이 반영됩니다.</p>
+  <p class="path-hint">현재 적용 파일: <strong id="current-excel-filename">{{ excel_filename|default('domino_inventory_training.xlsx') }}</strong> · 업로드 시 위 파일이 반영됩니다.</p>
   <div class="upload-bar">
-    <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center;">
-      <input type="file" name="excel" accept=".xlsx,.xls" required>
-      <button type="submit" class="btn">엑셀 업로드</button>
+    <form id="form-upload" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="file" name="excel" accept=".xlsx,.xls" required id="input-excel">
+      <button type="submit" class="btn" id="btn-upload">엑셀 업로드</button>
     </form>
   </div>
 
@@ -408,6 +408,81 @@
   <script>
     var excelPathForEdit = {{ (excel_path_for_api|default(excel_path)|default('')) | tojson }};
 
+    function escapeHtml(s) {
+      if (s == null || s === undefined) return '';
+      var div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+    function applyInventoryTable(inventory) {
+      var tbody = document.querySelector('.table-wrap tbody');
+      if (!tbody || !inventory || !inventory.length) return;
+      var html = '';
+      inventory.forEach(function(i) {
+        var statusClass = (i.status === '발주 필요') ? 'status-warn' : 'status-ok';
+        html += '<tr data-code="' + escapeHtml(i.code) + '" data-current="' + (i.current_stock || 0) + '" data-safety="' + (i.safety_stock || 0) + '" data-moq="' + (i.moq || 0) + '" data-order-qty="' + (i.order_quantity || 0) + '">';
+        html += '<td>' + escapeHtml(i.code) + '</td><td>' + escapeHtml(i.name) + '</td><td>' + escapeHtml(i.spec) + '</td><td>' + escapeHtml(i.unit) + '</td>';
+        html += '<td class="editable-qty" data-field="current_stock" title="클릭하여 수정">' + (i.current_stock || 0) + '</td>';
+        html += '<td class="editable-qty" data-field="safety_stock" title="클릭하여 수정">' + (i.safety_stock || 0) + '</td>';
+        html += '<td class="editable-qty" data-field="moq" title="클릭하여 수정">' + (i.moq || 0) + '</td>';
+        html += '<td class="editable-qty cell-order-qty" data-field="order_quantity" title="클릭하여 수정">' + (i.order_quantity || 0) + '</td>';
+        html += '<td class="cell-status ' + statusClass + '">' + escapeHtml(i.status || '') + '</td>';
+        html += '<td>' + escapeHtml(i.supplier || '') + '</td>';
+        html += '<td>' + escapeHtml(i.last_sent || '-') + '</td></tr>';
+      });
+      tbody.innerHTML = html;
+    }
+    function applyOrdersSection(orders) {
+      var section = document.querySelector('.orders-section');
+      if (!section || !orders || !orders.length) return;
+      var html = '<h2>공급업체별 발주 요약 <span class="arrow">›</span></h2>';
+      html += '<p class="path-hint" style="margin-bottom: 0.75rem;">발신 jhleele2@gmail.com · BCC 사본 전송</p>';
+      orders.forEach(function(order, idx) {
+        html += '<div class="order-block" data-supplier-index="' + idx + '">';
+        html += '<h3>' + escapeHtml(order.supplier_name || '') + '</h3>';
+        html += '<div class="meta">이메일: ' + escapeHtml(order.email || '(미입력 — 엑셀 Suppliers/Inventory 시트에 입력하세요)') + ' · 품목 수: ' + (order.item_count || 0) + ' · 총 발주 수량: ' + (order.total_order_quantity || 0) + '</div><ul>';
+        (order.items || []).forEach(function(item) {
+          html += '<li>' + escapeHtml(item.name) + ' (' + escapeHtml(item.code) + '): ' + (item.order_quantity || 0) + ' ' + escapeHtml(item.unit || '') + '</li>';
+        });
+        html += '</ul><button type="button" class="btn btn-send btn-send-one" data-index="' + idx + '">이 거래처로 발주서 발송</button>';
+        html += '<div class="send-result-one" data-index="' + idx + '" style="margin-top: 0.35rem; font-size: 0.85rem;"></div></div>';
+      });
+      section.innerHTML = html;
+    }
+
+    var formUpload = document.getElementById('form-upload');
+    if (formUpload) formUpload.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var fileInput = document.getElementById('input-excel');
+      if (!fileInput || !fileInput.files || !fileInput.files[0]) { alert('파일을 선택하세요.'); return; }
+      var fd = new FormData(formUpload);
+      var btn = document.getElementById('btn-upload');
+      if (btn) btn.disabled = true;
+      fetch('{{ url_for("upload") }}', {
+        method: 'POST',
+        body: fd,
+        headers: { 'Accept': 'application/json' }
+      }).then(function(r) {
+        if (r.status === 302) { window.location.href = r.headers.get('Location') || '{{ url_for("index") }}'; return null; }
+        return r.json();
+      }).then(function(data) {
+        if (btn) btn.disabled = false;
+        if (!data) return;
+        if (!data.ok) { alert(data.message || '업로드 실패'); return; }
+        var el = document.getElementById('current-excel-filename');
+        if (el) el.textContent = data.excel_filename || data.excel_path_for_api || '';
+        excelPathForEdit = data.excel_path_for_api || excelPathForEdit;
+        if (data.summary) applySummary(data.summary);
+        if (data.chart_by_status || data.chart_by_supplier) applyCharts(data.chart_by_status || [], data.chart_by_supplier || []);
+        if (data.inventory) applyInventoryTable(data.inventory);
+        if (data.orders) applyOrdersSection(data.orders);
+        alert(data.message || '업로드되었습니다.');
+      }).catch(function(err) {
+        if (btn) btn.disabled = false;
+        alert('업로드 실패: ' + err.message);
+      });
+    });
+
     var btnAdd = document.querySelector('.btn-add-item');
     if (btnAdd) btnAdd.addEventListener('click', function() { document.getElementById('modal-add-item').style.display = 'flex'; });
     var btnCancel = document.querySelector('.btn-modal-cancel');
@@ -523,86 +598,89 @@
         }).catch(function(err) { alert('저장 실패: ' + err.message); });
     }
 
-    document.querySelectorAll('td.editable-qty').forEach(function(td) {
-      td.addEventListener('click', function(e) {
-        if (td.querySelector('input')) return;
-        var row = td.closest('tr');
-        var field = td.dataset.field;
-        var value = td.textContent.trim();
-        var input = document.createElement('input');
-        input.type = 'number';
-        input.min = 0;
-        input.step = 1;
-        input.value = value;
-        input.style.width = '100%';
-        td.textContent = '';
-        td.appendChild(input);
-        input.focus();
-        input.select();
-        function finish() {
-          var newVal = input.value.trim() !== '' ? parseInt(input.value, 10) : 0;
-          if (isNaN(newVal)) newVal = 0;
-          var cur = parseInt(row.dataset.current, 10) || 0, safe = parseInt(row.dataset.safety, 10) || 0, moq = parseInt(row.dataset.moq, 10) || 0, orderQty = parseInt(row.dataset.orderQty, 10) || 0;
-          var orderOverride = undefined;
-          if (field === 'current_stock') cur = newVal;
-          else if (field === 'safety_stock') safe = newVal;
-          else if (field === 'moq') moq = newVal;
-          else if (field === 'order_quantity') { orderQty = newVal; orderOverride = newVal; }
+    function onEditableQtyClick(td) {
+      if (td.querySelector('input')) return;
+      var row = td.closest('tr');
+      var field = td.dataset.field;
+      var value = td.textContent.trim();
+      var input = document.createElement('input');
+      input.type = 'number';
+      input.min = 0;
+      input.step = 1;
+      input.value = value;
+      input.style.width = '100%';
+      td.textContent = '';
+      td.appendChild(input);
+      input.focus();
+      input.select();
+      function finish() {
+        var newVal = input.value.trim() !== '' ? parseInt(input.value, 10) : 0;
+        if (isNaN(newVal)) newVal = 0;
+        var cur = parseInt(row.dataset.current, 10) || 0, safe = parseInt(row.dataset.safety, 10) || 0, moq = parseInt(row.dataset.moq, 10) || 0, orderQty = parseInt(row.dataset.orderQty, 10) || 0;
+        var orderOverride = undefined;
+        if (field === 'current_stock') cur = newVal;
+        else if (field === 'safety_stock') safe = newVal;
+        else if (field === 'moq') moq = newVal;
+        else if (field === 'order_quantity') { orderQty = newVal; orderOverride = newVal; }
+        td.removeChild(input);
+        td.textContent = (field === 'current_stock' ? cur : field === 'safety_stock' ? safe : field === 'moq' ? moq : orderQty);
+        saveRowQuantities(row, cur, safe, moq, orderOverride);
+      }
+      input.addEventListener('blur', finish);
+      input.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+        if (ev.key === 'Escape') {
           td.removeChild(input);
-          td.textContent = (field === 'current_stock' ? cur : field === 'safety_stock' ? safe : field === 'moq' ? moq : orderQty);
-          saveRowQuantities(row, cur, safe, moq, orderOverride);
+          td.textContent = value;
         }
-        input.addEventListener('blur', finish);
-        input.addEventListener('keydown', function(ev) {
-          if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
-          if (ev.key === 'Escape') {
-            td.removeChild(input);
-            td.textContent = value;
-          }
-        });
       });
+    }
+    var tableWrap = document.querySelector('.table-wrap');
+    if (tableWrap) tableWrap.addEventListener('click', function(e) {
+      var td = e.target.closest('td.editable-qty');
+      if (td) onEditableQtyClick(td);
     });
 
-    document.querySelectorAll('.btn-send-one').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        var idx = parseInt(btn.dataset.index, 10);
-        var resultEl = document.querySelector('.send-result-one[data-index="' + idx + '"]');
-        btn.disabled = true;
-        if (resultEl) resultEl.textContent = '발송 중...';
-        fetch('{{ url_for("api_send_orders") }}', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            excel_path: excelPathForEdit,
-            supplier_indices: [idx],
-            store_name: '도미노피자',
-            internal_owner: 'jhleele2@gmail.com'
-          })
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('.btn-send-one');
+      if (!btn) return;
+      var idx = parseInt(btn.dataset.index, 10);
+      var resultEl = document.querySelector('.send-result-one[data-index="' + idx + '"]');
+      btn.disabled = true;
+      if (resultEl) resultEl.textContent = '발송 중...';
+      fetch('{{ url_for("api_send_orders") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          excel_path: excelPathForEdit,
+          supplier_indices: [idx],
+          store_name: '도미노피자',
+          internal_owner: 'jhleele2@gmail.com'
         })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-          if (data.ok && data.results && data.results[0]) {
-            var r = data.results[0];
-            if (resultEl) resultEl.textContent = r.ok ? '발송 완료' : '실패: ' + r.message;
-            if (resultEl) resultEl.style.color = r.ok ? 'var(--success)' : '#f85149';
-            if (r.ok && r.last_sent) {
-              document.querySelectorAll('.table-wrap tbody tr').forEach(function(tr) {
-                var cells = tr.querySelectorAll('td');
-                if (cells.length > 10 && cells[9].textContent.trim() === r.supplier) {
-                  cells[10].textContent = r.last_sent;
-                }
-              });
-            }
-          } else if (resultEl) {
-            resultEl.textContent = '오류: ' + (data.message || '알 수 없음');
-            resultEl.style.color = '#f85149';
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok && data.results && data.results[0]) {
+          var r = data.results[0];
+          if (resultEl) resultEl.textContent = r.ok ? '발송 완료' : '실패: ' + r.message;
+          if (resultEl) resultEl.style.color = r.ok ? 'var(--success)' : '#f85149';
+          if (r.ok && r.last_sent) {
+            document.querySelectorAll('.table-wrap tbody tr').forEach(function(tr) {
+              var cells = tr.querySelectorAll('td');
+              if (cells.length > 10 && cells[9].textContent.trim() === r.supplier) {
+                cells[10].textContent = r.last_sent;
+              }
+            });
           }
-        })
-        .catch(function(e) {
-          if (resultEl) { resultEl.textContent = '요청 실패: ' + e.message; resultEl.style.color = '#f85149'; }
-        })
-        .finally(function() { btn.disabled = false; });
-      });
+        } else if (resultEl) {
+          resultEl.textContent = '오류: ' + (data.message || '알 수 없음');
+          resultEl.style.color = '#f85149';
+        }
+      })
+      .catch(function(e) {
+        if (resultEl) { resultEl.textContent = '요청 실패: ' + e.message; resultEl.style.color = '#f85149'; }
+      })
+      .finally(function() { btn.disabled = false; });
     });
   </script>
   </div>
