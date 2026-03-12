@@ -60,6 +60,30 @@ TEAM_PASSWORD = os.environ.get("TEAM_PASSWORD", "1234")
 ALLOWED_EXTENSIONS = {"xlsx", "xls"}
 
 
+def apply_inventory_overrides(inventory_list):
+    """세션에 저장된 수량 수정(배포 환경용)을 재고 목록에 반영. 발주수량·상태 재계산."""
+    overrides = session.get("inventory_overrides") or {}
+    if not overrides:
+        return inventory_list
+    result = []
+    for item in inventory_list:
+        item = dict(item)
+        code = (item.get("code") or "").strip()
+        if code in overrides:
+            o = overrides[code]
+            if "current_stock" in o: item["current_stock"] = int(o["current_stock"])
+            if "safety_stock" in o: item["safety_stock"] = int(o["safety_stock"])
+            if "moq" in o: item["moq"] = int(o["moq"])
+        current = item.get("current_stock", 0)
+        safety = item.get("safety_stock", 0)
+        moq = item.get("moq", 0)
+        order_qty = max(0, max(moq, safety - current))
+        item["order_quantity"] = order_qty
+        item["status"] = "발주 필요" if order_qty > 0 else "정상"
+        result.append(item)
+    return result
+
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[-1].lower() in ALLOWED_EXTENSIONS
 
@@ -118,7 +142,7 @@ def index():
         return render_template(
             "index.html", error=data["error"], orders=[], inventory=[], summary=None, read_only_deploy=os.environ.get("VERCEL") == "1"
         )
-    inventory = data["inventory"]
+    inventory = apply_inventory_overrides(data["inventory"])
     orders = get_orders_by_supplier(inventory)
     need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
     total_items = len(inventory)
@@ -193,16 +217,18 @@ def api_inventory_update():
             moq = int(moq)
     except (TypeError, ValueError):
         return jsonify({"ok": False, "message": "현재고/안전재고/MOQ는 숫자로 입력하세요."})
+    code = str(item_code).strip()
+    # 배포 환경(Vercel): 엑셀 저장 불가 → 세션에만 저장. 화면·메일 발송 시 반영됨.
+    if os.environ.get("VERCEL") == "1":
+        overrides = session.get("inventory_overrides") or {}
+        overrides[code] = {k: v for k, v in ({"current_stock": current_stock, "safety_stock": safety_stock, "moq": moq}).items() if v is not None}
+        session["inventory_overrides"] = overrides
+        session.modified = True
+        return jsonify({"ok": True, "message": "저장되었습니다. 메일 발송 시 반영됩니다."})
     ok, msg = update_inventory_item(
-        excel_path,
-        str(item_code).strip(),
-        current_stock=current_stock,
-        safety_stock=safety_stock,
-        moq=moq,
-        name=data.get("name"),
-        spec=data.get("spec"),
-        unit=data.get("unit"),
-        supplier=data.get("supplier"),
+        excel_path, code,
+        current_stock=current_stock, safety_stock=safety_stock, moq=moq,
+        name=data.get("name"), spec=data.get("spec"), unit=data.get("unit"), supplier=data.get("supplier"),
     )
     return jsonify({"ok": ok, "message": msg})
 
@@ -223,7 +249,7 @@ def api_send_orders():
     data = load_all(excel_path)
     if data.get("error"):
         return jsonify({"ok": False, "message": data["error"]})
-    inventory = data["inventory"]
+    inventory = apply_inventory_overrides(data["inventory"])
     orders = get_orders_by_supplier(inventory)
     # Suppliers 시트에서 공급업체명 → 이메일 보정 (Inventory에 이메일이 비어 있을 때 사용)
     supplier_email_map = {}
