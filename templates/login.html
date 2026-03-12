@@ -13,16 +13,19 @@
       font-display: swap;
     }
     :root {
-      --topbar: #1a1a1a;
-      --bg: #f5f5f5;
+      --topbar: #0f172a;
+      --bg: #f1f5f9;
       --card: #ffffff;
-      --border: #e8e8e8;
-      --text: #1a1a1a;
-      --muted: #888888;
-      --primary: #1a1a1a;
-      --primary-hover: #333333;
-      --error: #c62828;
-      --radius: 12px;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-soft: #475569;
+      --muted: #64748b;
+      --primary: #0f172a;
+      --primary-hover: #1e293b;
+      --accent: #2563eb;
+      --accent-soft: rgba(37, 99, 235, 0.1);
+      --error: #b91c1c;
+      --radius: 14px;
       --radius-btn: 10px;
     }
     * { box-sizing: border-box; }
@@ -35,54 +38,81 @@
       min-height: 100vh;
       -webkit-font-smoothing: antialiased;
       letter-spacing: -0.01em;
+      line-height: 1.55;
     }
     .topbar {
-      background: var(--topbar);
+      background: linear-gradient(180deg, var(--topbar) 0%, #1e293b 100%);
       color: #fff;
-      padding: 0.875rem 1.25rem;
+      padding: 0.9rem 1.5rem;
       text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
-    .topbar h1 { font-size: 1.125rem; font-weight: 700; margin: 0; }
-    .login-wrap { padding: 2rem 1.25rem; display: flex; align-items: center; justify-content: center; }
+    .topbar h1 { font-size: 1.2rem; font-weight: 700; margin: 0; letter-spacing: -0.03em; }
+    .login-wrap {
+      padding: 3rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: calc(100vh - 56px);
+    }
     .card {
       background: var(--card);
       border-radius: var(--radius);
-      padding: 2rem 1.75rem;
+      padding: 2.25rem 2rem;
       width: 100%;
-      max-width: 340px;
+      max-width: 360px;
       border: 1px solid var(--border);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
     }
-    .card h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.25rem; color: var(--text); }
-    .sub { font-size: 0.8125rem; color: var(--muted); margin-bottom: 1.5rem; }
-    label { display: block; font-size: 0.8125rem; font-weight: 500; color: var(--text); margin-bottom: 0.5rem; }
+    .card h2 { font-size: 1.15rem; font-weight: 700; margin: 0 0 0.35rem; color: var(--text); letter-spacing: -0.02em; }
+    .sub { font-size: 0.875rem; color: var(--muted); margin-bottom: 1.6rem; line-height: 1.5; }
+    label { display: block; font-size: 0.8125rem; font-weight: 600; color: var(--text-soft); margin-bottom: 0.5rem; }
     input[type="password"] {
       width: 100%;
-      padding: 0.75rem 1rem;
+      padding: 0.85rem 1.1rem;
       font-size: 0.9375rem;
       font-family: inherit;
       background: #fff;
       border: 1px solid var(--border);
       border-radius: var(--radius-btn);
       color: var(--text);
-      margin-bottom: 1.25rem;
-      transition: border-color 0.2s;
+      margin-bottom: 1.35rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    input[type="password"]:focus { outline: none; border-color: var(--primary); }
+    input[type="password"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
     button {
       width: 100%;
-      padding: 0.75rem;
+      padding: 0.85rem;
       font-size: 0.9375rem;
-      font-weight: 600;
+      font-weight: 700;
       font-family: inherit;
       background: var(--primary);
       color: #fff;
       border: none;
       border-radius: var(--radius-btn);
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 8px rgba(15,23,42,0.25);
     }
-    button:hover { background: var(--primary-hover); }
-    .error { color: var(--error); font-size: 0.8125rem; margin-bottom: 1rem; font-weight: 500; }
+    button:hover {
+      background: var(--primary-hover);
+      box-shadow: 0 3px 12px rgba(15,23,42,0.3);
+    }
+    button:active { transform: scale(0.99); }
+    .error {
+      color: var(--error);
+      font-size: 0.8125rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+      padding: 0.6rem 1rem;
+      background: rgba(185, 28, 28, 0.08);
+      border-radius: 8px;
+      border-left: 3px solid var(--error);
+    }
   </style>
 </head>
 <body>
