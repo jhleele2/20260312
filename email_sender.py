@@ -70,7 +70,7 @@ def send_order_email(
     if not to_email or "@" not in to_email:
         return False, "수신 이메일 없음. 엑셀 Inventory 시트 '공급업체이메일' 열 또는 Suppliers 시트에 이메일을 입력하세요."
     if not sender_password:
-        return False, "발신 비밀번호(앱 비밀번호)가 설정되지 않았습니다. .env에서 SMTP_PASSWORD를 설정하세요."
+        return False, "발신 비밀번호 미설정. Vercel: 프로젝트 설정 → Environment Variables에 SMTP_PASSWORD( Gmail 앱 비밀번호) 추가 후 재배포."
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject

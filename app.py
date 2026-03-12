@@ -115,7 +115,9 @@ def index():
         session.pop("uploaded_file", None)
     data = load_all(excel_path)
     if data.get("error"):
-        return render_template("index.html", error=data["error"], orders=[], inventory=[], summary=None)
+        return render_template(
+            "index.html", error=data["error"], orders=[], inventory=[], summary=None, read_only_deploy=os.environ.get("VERCEL") == "1"
+        )
     inventory = data["inventory"]
     orders = get_orders_by_supplier(inventory)
     need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
@@ -135,6 +137,7 @@ def index():
         summary=summary,
         excel_path=excel_path,
         email_template=data.get("email_template", {}),
+        read_only_deploy=os.environ.get("VERCEL") == "1",
     )
 
 

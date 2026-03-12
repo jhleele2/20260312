@@ -43,11 +43,16 @@ python app.py
 4. **발주서 이메일 일괄 발송**  
    각 공급업체 이메일로 엑셀 `EmailTemplate` 시트의 제목/본문 형식({{STORE_NAME}}, {{SUPPLIER_NAME}}, {{ORDER_DATE}}, {{ITEM_LIST}}, {{INTERNAL_OWNER}})을 채워 발송합니다. 발신은 `jhleele2@gmail.com`입니다.
 
-## Vercel 배포
+## Vercel 배포 (메일 발송하려면 필수)
 
 1. [Vercel](https://vercel.com)에 로그인 후 **Import Git Repository**에서 이 저장소 연결.
-2. 환경 변수 설정: `SMTP_PASSWORD`, `TEAM_PASSWORD`(선택), `SECRET_KEY`(선택) 등.
-3. 배포 후 팀원들은 배포 URL 접속 → 팀 비밀번호 입력 후 사용.
+2. **Settings → Environment Variables**에서 아래 변수 추가:
+   - **SMTP_PASSWORD** (필수): Gmail 앱 비밀번호. [앱 비밀번호 생성](https://myaccount.google.com/apppasswords)
+   - **SMTP_USER** (선택): 발신 이메일, 기본 `jhleele2@gmail.com`
+   - **TEAM_PASSWORD** (선택): 팀 로그인 비밀번호, 기본 `1234`
+   - **SECRET_KEY** (선택): 세션 암호화용 랜덤 문자열
+3. 변수 추가 후 **Redeploy** 한 번 실행해야 적용됩니다.
+4. 배포 URL 접속 → 팀 비밀번호 입력 후 사용.
 
 ## 환경 변수 (.env)
 

@@ -3,6 +3,7 @@
 엑셀 파일(domino_inventory_training.xlsx 구조)에서
 재고·공급처·이메일 템플릿을 읽고, 발주 필요 항목을 분석합니다.
 """
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import openpyxl
@@ -156,6 +157,9 @@ def update_inventory_item(
     반환: (성공 여부, 메시지)
     엑셀 컬럼(1-based): A=품목코드, B=이름, C=규격, D=단위, E=현재고, F=안전재고, G=MOQ, H=공급업체
     """
+    # Vercel 등 배포 환경: 디스크 읽기 전용이라 엑셀 저장 불가
+    if os.environ.get("VERCEL") == "1":
+        return False, "배포 환경(Vercel)에서는 엑셀 수정이 불가합니다. 수량·재고 변경은 로컬에서 실행할 때만 저장됩니다."
     path = Path(excel_path)
     if not path.exists():
         return False, "파일이 없습니다."

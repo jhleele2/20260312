@@ -91,19 +91,9 @@
     .order-block ul { margin: 0; padding-left: 1.2rem; }
     #send-result { margin-top: 0.5rem; font-size: 0.9rem; }
     .path-hint { font-size: 0.8rem; color: var(--muted); }
-    .btn-edit { padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--warn); color: var(--bg); }
     td.editable-qty { cursor: pointer; min-width: 3.5rem; }
     td.editable-qty:hover { background: var(--border); }
     td.editable-qty input { width: 100%; max-width: 4rem; padding: 0.2rem 0.3rem; font-size: inherit; background: var(--bg); border: 1px solid var(--accent); color: var(--text); border-radius: 4px; }
-    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-    .modal-overlay.show { display: flex; }
-    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; min-width: 320px; max-width: 90vw; }
-    .modal h3 { margin: 0 0 1rem; font-size: 1.1rem; }
-    .modal label { display: block; margin-top: 0.5rem; font-size: 0.85rem; color: var(--muted); }
-    .modal input { width: 100%; padding: 0.35rem 0.5rem; margin-top: 0.2rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
-    .modal input[readonly] { opacity: 0.8; }
-    .modal-actions { margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end; }
-    .modal-actions .btn { margin: 0; }
   </style>
 </head>
 <body>
@@ -131,12 +121,15 @@
   {% endif %}
 
   <h2>재고 현황</h2>
+  {% if read_only_deploy %}
+  <p class="path-hint" style="margin-bottom: 0.5rem;">⚠️ 배포 환경에서는 수량·재고 수정이 저장되지 않습니다. 수정은 로컬에서 실행할 때만 엑셀에 반영됩니다.</p>
+  {% endif %}
   <div style="overflow-x: auto;">
     <table>
       <thead>
         <tr>
-          <th>품목코드</th><th>이름</th><th>규격</th><th>단위</th><th>현재고</th><th>안전재고</th><th>MOQ</th>
-          <th>발주수량</th><th>상태</th><th>공급업체</th><th>수정</th>
+          <th>품목코드</th><th>이름</th><th>규격</th><th>단위</th><th>현재고</th><th>안전재고</th><th>MOQ <span style="font-weight:normal;color:var(--muted);" title="최소 발주 수량">(최소)</span></th>
+          <th>발주수량 <span style="font-weight:normal;color:var(--muted);" title="계산값: MAX(MOQ, 안전재고−현재고)">(계산)</span></th><th>상태</th><th>공급업체</th>
         </tr>
       </thead>
       <tbody>
@@ -149,7 +142,6 @@
           <td>{{ i.order_quantity }}</td>
           <td class="{% if i.status == '발주 필요' %}status-warn{% else %}status-ok{% endif %}">{{ i.status }}</td>
           <td>{{ i.supplier }}</td>
-          <td><button type="button" class="btn btn-edit" data-code="{{ i.code }}" data-name="{{ i.name }}" data-spec="{{ i.spec }}" data-unit="{{ i.unit }}" data-current="{{ i.current_stock }}" data-safety="{{ i.safety_stock }}" data-moq="{{ i.moq }}" data-supplier="{{ i.supplier }}">이름/규격 등</button></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -158,8 +150,9 @@
 
   <div class="orders-section">
     <h2>공급업체별 발주 요약 (발주서 발송 대상)</h2>
+    <p class="path-hint" style="margin-bottom: 0.75rem;">발신: jhleele2@gmail.com · 발송 시 본인 메일함에 BCC 사본 전송.</p>
     {% for order in orders %}
-    <div class="order-block">
+    <div class="order-block" data-supplier-index="{{ loop.index0 }}">
       <h3>{{ order.supplier_name }}</h3>
       <div class="meta">이메일: {{ order.email or '(미입력 — 엑셀 Suppliers/Inventory 시트에 입력하세요)' }} · 품목 수: {{ order.item_count }} · 총 발주 수량: {{ order.total_order_quantity }}</div>
       <ul>
@@ -167,45 +160,12 @@
         <li>{{ item.name }} ({{ item.code }}): {{ item.order_quantity }} {{ item.unit }}</li>
         {% endfor %}
       </ul>
+      <button type="button" class="btn btn-send btn-send-one" data-index="{{ loop.index0 }}">이 거래처로 발주서 발송</button>
+      <div class="send-result-one" data-index="{{ loop.index0 }}" style="margin-top: 0.35rem; font-size: 0.85rem;"></div>
     </div>
     {% endfor %}
-
-    {% if orders %}
-    <p>발신: <strong>jhleele2@gmail.com</strong>. 발송 시 <strong>본인 메일함에 BCC 사본</strong>이 함께 전송됩니다. (수신처는 엑셀의 공급업체 이메일)</p>
-    <button type="button" class="btn btn-send" id="send-orders-btn">발주서 이메일 일괄 발송</button>
-    <div id="send-result"></div>
-    {% endif %}
   </div>
   {% endif %}
-
-  <div id="edit-modal-overlay" class="modal-overlay">
-    <div class="modal">
-      <h3>재고 품목 수정</h3>
-      <form id="edit-inventory-form">
-        <input type="hidden" name="item_code" id="edit-item-code">
-        <label>품목코드</label>
-        <input type="text" id="edit-code-display" readonly>
-        <label>이름</label>
-        <input type="text" name="name" id="edit-name">
-        <label>규격</label>
-        <input type="text" name="spec" id="edit-spec">
-        <label>단위</label>
-        <input type="text" name="unit" id="edit-unit">
-        <label>현재고</label>
-        <input type="number" name="current_stock" id="edit-current" min="0" step="1">
-        <label>안전재고</label>
-        <input type="number" name="safety_stock" id="edit-safety" min="0" step="1">
-        <label>MOQ</label>
-        <input type="number" name="moq" id="edit-moq" min="0" step="1">
-        <label>공급업체</label>
-        <input type="text" name="supplier" id="edit-supplier">
-        <div class="modal-actions">
-          <button type="button" class="btn" id="edit-modal-cancel">취소</button>
-          <button type="submit" class="btn btn-send">저장</button>
-        </div>
-      </form>
-    </div>
-  </div>
 
   <script>
     var excelPathForEdit = {{ (excel_path or '') | tojson }};
@@ -268,80 +228,38 @@
       });
     });
 
-    document.querySelectorAll('.btn-edit').forEach(function(btn) {
+    document.querySelectorAll('.btn-send-one').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        document.getElementById('edit-item-code').value = btn.dataset.code;
-        document.getElementById('edit-code-display').value = btn.dataset.code;
-        document.getElementById('edit-name').value = btn.dataset.name || '';
-        document.getElementById('edit-spec').value = btn.dataset.spec || '';
-        document.getElementById('edit-unit').value = btn.dataset.unit || '';
-        document.getElementById('edit-current').value = btn.dataset.current || '0';
-        document.getElementById('edit-safety').value = btn.dataset.safety || '0';
-        document.getElementById('edit-moq').value = btn.dataset.moq || '0';
-        document.getElementById('edit-supplier').value = btn.dataset.supplier || '';
-        document.getElementById('edit-modal-overlay').classList.add('show');
-      });
-    });
-    document.getElementById('edit-modal-cancel').addEventListener('click', function() {
-      document.getElementById('edit-modal-overlay').classList.remove('show');
-    });
-    document.getElementById('edit-modal-overlay').addEventListener('click', function(e) {
-      if (e.target === this) this.classList.remove('show');
-    });
-    document.getElementById('edit-inventory-form').addEventListener('submit', function(e) {
-      e.preventDefault();
-      var fd = new FormData(this);
-      var payload = {
-        excel_path: excelPathForEdit,
-        item_code: document.getElementById('edit-item-code').value,
-        name: fd.get('name'),
-        spec: fd.get('spec'),
-        unit: fd.get('unit'),
-        current_stock: fd.get('current_stock') !== '' ? parseInt(fd.get('current_stock'), 10) : null,
-        safety_stock: fd.get('safety_stock') !== '' ? parseInt(fd.get('safety_stock'), 10) : null,
-        moq: fd.get('moq') !== '' ? parseInt(fd.get('moq'), 10) : null,
-        supplier: fd.get('supplier') || null
-      };
-      fetch('{{ url_for("api_inventory_update") }}', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).then(function(r) { return r.json(); })
-        .then(function(res) {
-          if (res.ok) { window.location.reload(); }
-          else { alert(res.message || '저장 실패'); }
-        }).catch(function(err) { alert('요청 실패: ' + err.message); });
-    });
-
-    document.getElementById('send-orders-btn')?.addEventListener('click', function() {
-      var btn = this;
-      var resultEl = document.getElementById('send-result');
-      btn.disabled = true;
-      resultEl.textContent = '발송 중...';
-      fetch('{{ url_for("api_send_orders") }}', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          excel_path: {{ (excel_path or '') | tojson }},
-          store_name: '도미노피자',
-          internal_owner: 'jhleele2@gmail.com'
+        var idx = parseInt(btn.dataset.index, 10);
+        var resultEl = document.querySelector('.send-result-one[data-index="' + idx + '"]');
+        btn.disabled = true;
+        if (resultEl) resultEl.textContent = '발송 중...';
+        fetch('{{ url_for("api_send_orders") }}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            excel_path: excelPathForEdit,
+            supplier_indices: [idx],
+            store_name: '도미노피자',
+            internal_owner: 'jhleele2@gmail.com'
+          })
         })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.ok) {
-          var lines = data.results.map(function(r) {
-            return r.supplier + ': ' + (r.ok ? '발송 완료' : '실패 - ' + r.message);
-          });
-          resultEl.innerHTML = '<pre style="margin:0; white-space:pre-wrap;">' + lines.join('\n') + '</pre>';
-        } else {
-          resultEl.textContent = '오류: ' + (data.message || '알 수 없음');
-        }
-      })
-      .catch(function(e) {
-        resultEl.textContent = '요청 실패: ' + e.message;
-      })
-      .finally(function() { btn.disabled = false; });
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          if (data.ok && data.results && data.results[0]) {
+            var r = data.results[0];
+            if (resultEl) resultEl.textContent = r.ok ? '발송 완료' : '실패: ' + r.message;
+            if (resultEl) resultEl.style.color = r.ok ? 'var(--success)' : '#f85149';
+          } else if (resultEl) {
+            resultEl.textContent = '오류: ' + (data.message || '알 수 없음');
+            resultEl.style.color = '#f85149';
+          }
+        })
+        .catch(function(e) {
+          if (resultEl) { resultEl.textContent = '요청 실패: ' + e.message; resultEl.style.color = '#f85149'; }
+        })
+        .finally(function() { btn.disabled = false; });
+      });
     });
   </script>
 </body>
