@@ -46,6 +46,8 @@ from email_sender import fill_template, send_order_email, DEFAULT_SENDER_EMAIL, 
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "inventory-dev-secret-key")
+# 세션 쿠키만 사용(브라우저 닫으면 만료) → 다시 들어올 때마다 로그인 필요
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10MB
 # Vercel: 쓰기 가능한 경로 사용
 if os.environ.get("VERCEL") == "1":
@@ -99,6 +101,7 @@ def login():
     if request.method == "POST":
         if (request.form.get("password") or "").strip() == TEAM_PASSWORD:
             session["auth"] = True
+            session.permanent = False  # 브라우저 닫으면 세션 만료, 재방문 시 로그인 필요
             return redirect(url_for("index"))
         return render_template("login.html", error="비밀번호가 올바르지 않습니다.")
     if session.get("auth") is True:
