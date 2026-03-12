@@ -301,7 +301,7 @@
   <h2>범주별 시각화 <span class="arrow">›</span></h2>
   <div class="chart-section">
     {% if chart_by_status|default([]) %}
-    <div class="chart-box">
+    <div class="chart-box" id="chart-by-status">
       <h3>상태별 품목 수</h3>
       {% for s in (chart_by_status|default([])) %}
       <div class="chart-row">
@@ -312,7 +312,7 @@
     </div>
     {% endif %}
     {% if chart_by_supplier|default([]) %}
-    <div class="chart-box">
+    <div class="chart-box" id="chart-by-supplier">
       <h3>공급업체별 발주 수량</h3>
       {% for s in (chart_by_supplier|default([])) %}
       <div class="chart-row">
@@ -346,11 +346,11 @@
         {% for i in inventory %}
         <tr data-code="{{ i.code }}" data-current="{{ i.current_stock }}" data-safety="{{ i.safety_stock }}" data-moq="{{ i.moq }}">
           <td>{{ i.code }}</td><td>{{ i.name }}</td><td>{{ i.spec }}</td><td>{{ i.unit }}</td>
-          <td class="editable-qty" data-field="current_stock" title="클릭하여 수정">{{ i.current_stock }}</td>
+          <td>{{ i.current_stock }}</td>
           <td class="editable-qty" data-field="safety_stock" title="클릭하여 수정">{{ i.safety_stock }}</td>
           <td class="editable-qty" data-field="moq" title="클릭하여 수정">{{ i.moq }}</td>
-          <td>{{ i.order_quantity }}</td>
-          <td class="{% if i.status == '발주 필요' %}status-warn{% else %}status-ok{% endif %}">{{ i.status }}</td>
+          <td class="cell-order-qty">{{ i.order_quantity }}</td>
+          <td class="cell-status {% if i.status == '발주 필요' %}status-warn{% else %}status-ok{% endif %}">{{ i.status }}</td>
           <td>{{ i.supplier }}</td>
           <td>{{ i.last_sent or '-' }}</td>
         </tr>
@@ -459,6 +459,35 @@
       }).catch(function(err) { alert('다운로드 실패: ' + err.message); });
     });
 
+    function applySummary(s) {
+      if (!s) return;
+      var cards = document.querySelectorAll('.summary .card .value');
+      if (cards.length >= 4) {
+        cards[0].textContent = s.total_items;
+        cards[1].textContent = s.need_order_count;
+        cards[2].textContent = s.total_order_quantity;
+        cards[3].textContent = s.supplier_count;
+      }
+    }
+    function applyCharts(statusList, supplierList) {
+      var statusEl = document.getElementById('chart-by-status');
+      if (statusEl && statusList && statusList.length) {
+        var html = '<h3>상태별 품목 수</h3>';
+        statusList.forEach(function(s) {
+          var cls = s.label === '정상' ? 'ok' : 'warn';
+          html += '<div class="chart-row"><div class="flex"><span>' + s.label + '</span><span>' + s.count + '건 (' + s.pct + '%)</span></div><div class="chart-bar-wrap"><div class="chart-bar ' + cls + '" style="width:' + s.pct + '%;"></div></div></div>';
+        });
+        statusEl.innerHTML = html;
+      }
+      var supplierEl = document.getElementById('chart-by-supplier');
+      if (supplierEl && supplierList && supplierList.length) {
+        var html2 = '<h3>공급업체별 발주 수량</h3>';
+        supplierList.forEach(function(s) {
+          html2 += '<div class="chart-row"><div class="flex"><span>' + (s.name || '') + '</span><span>' + s.qty + '</span></div><div class="chart-bar-wrap"><div class="chart-bar supplier" style="width:' + s.pct + '%;"></div></div></div>';
+        });
+        supplierEl.innerHTML = html2;
+      }
+    }
     function saveRowQuantities(row, current, safety, moq) {
       var code = row.dataset.code;
       var payload = {
@@ -474,8 +503,20 @@
         body: JSON.stringify(payload)
       }).then(function(r) { return r.json(); })
         .then(function(res) {
-          if (res.ok) window.location.reload();
-          else alert(res.message || '저장 실패');
+          if (!res.ok) { alert(res.message || '저장 실패'); return; }
+          row.dataset.safety = safety;
+          row.dataset.moq = moq;
+          if (res.item) {
+            var orderQtyCell = row.querySelector('.cell-order-qty');
+            var statusCell = row.querySelector('.cell-status');
+            if (orderQtyCell) orderQtyCell.textContent = res.item.order_quantity;
+            if (statusCell) {
+              statusCell.textContent = res.item.status;
+              statusCell.className = 'cell-status ' + (res.item.status === '발주 필요' ? 'status-warn' : 'status-ok');
+            }
+          }
+          if (res.summary) applySummary(res.summary);
+          if (res.chart_by_status || res.chart_by_supplier) applyCharts(res.chart_by_status || [], res.chart_by_supplier || []);
         }).catch(function(err) { alert('저장 실패: ' + err.message); });
     }
 
@@ -499,11 +540,10 @@
           var newVal = input.value.trim() !== '' ? parseInt(input.value, 10) : 0;
           if (isNaN(newVal)) newVal = 0;
           var cur = parseInt(row.dataset.current, 10) || 0, safe = parseInt(row.dataset.safety, 10) || 0, moq = parseInt(row.dataset.moq, 10) || 0;
-          if (field === 'current_stock') cur = newVal;
-          else if (field === 'safety_stock') safe = newVal;
+          if (field === 'safety_stock') safe = newVal;
           else if (field === 'moq') moq = newVal;
           td.removeChild(input);
-          td.textContent = (field === 'current_stock' ? cur : field === 'safety_stock' ? safe : moq);
+          td.textContent = (field === 'safety_stock' ? safe : moq);
           saveRowQuantities(row, cur, safe, moq);
         }
         input.addEventListener('blur', finish);

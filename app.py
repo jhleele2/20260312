@@ -369,16 +369,26 @@ def upload():
     return redirect(url_for("index", file=safe_name))
 
 
+def _resolve_excel_path_for_response(client_path: str):
+    """클라이언트가 보낸 excel_path를 보정해 get_effective_inventory 호출용 경로 반환 (배포 시 세션 파일 우선)."""
+    p = Path(client_path or str(app.config["DEFAULT_EXCEL"]))
+    if p.exists():
+        return str(p)
+    if session.get("uploaded_file"):
+        cand = Path(app.config["UPLOAD_FOLDER"]) / session["uploaded_file"]
+        if cand.exists():
+            return str(cand)
+    return str(app.config["DEFAULT_EXCEL"])
+
+
 @app.route("/api/inventory/update", methods=["POST"])
 def api_inventory_update():
-    """재고 품목 한 건 수정. 엑셀 파일에 반영."""
+    """재고 품목 한 건 수정. 엑셀 파일에 반영. 성공 시 갱신된 항목·요약·시각화 반환."""
     data = request.get_json() or {}
     excel_path = data.get("excel_path") or str(app.config["DEFAULT_EXCEL"])
     item_code = data.get("item_code")
     if not item_code:
         return jsonify({"ok": False, "message": "품목코드가 필요합니다."})
-    if not Path(excel_path).exists():
-        return jsonify({"ok": False, "message": "엑셀 파일을 찾을 수 없습니다."})
     try:
         current_stock = data.get("current_stock")
         safety_stock = data.get("safety_stock")
@@ -392,19 +402,54 @@ def api_inventory_update():
     except (TypeError, ValueError):
         return jsonify({"ok": False, "message": "현재고/안전재고/MOQ는 숫자로 입력하세요."})
     code = str(item_code).strip()
-    # 배포 환경(Vercel): 엑셀 저장 불가 → 세션에만 저장. 화면·메일 발송 시 반영됨.
+    # 배포 환경(Vercel): 엑셀 저장 불가 → 세션에만 저장.
     if os.environ.get("VERCEL") == "1":
         overrides = session.get("inventory_overrides") or {}
         overrides[code] = {k: v for k, v in ({"current_stock": current_stock, "safety_stock": safety_stock, "moq": moq}).items() if v is not None}
         session["inventory_overrides"] = overrides
         session.modified = True
-        return jsonify({"ok": True, "message": "저장되었습니다. 메일 발송 시 반영됩니다."})
-    ok, msg = update_inventory_item(
-        excel_path, code,
-        current_stock=current_stock, safety_stock=safety_stock, moq=moq,
-        name=data.get("name"), spec=data.get("spec"), unit=data.get("unit"), supplier=data.get("supplier"),
-    )
-    return jsonify({"ok": ok, "message": msg})
+    else:
+        if not Path(excel_path).exists():
+            return jsonify({"ok": False, "message": "엑셀 파일을 찾을 수 없습니다."})
+        ok, msg = update_inventory_item(
+            excel_path, code,
+            current_stock=current_stock, safety_stock=safety_stock, moq=moq,
+            name=data.get("name"), spec=data.get("spec"), unit=data.get("unit"), supplier=data.get("supplier"),
+        )
+        if not ok:
+            return jsonify({"ok": False, "message": msg})
+    # 갱신된 재고로 요약·시각화 계산해 바로 반영용으로 반환
+    resolved = _resolve_excel_path_for_response(excel_path)
+    inventory = get_effective_inventory(resolved)
+    orders = get_orders_by_supplier(inventory)
+    need_count = sum(1 for i in inventory if i.get("order_quantity", 0) > 0)
+    total_items = len(inventory)
+    total_order_qty = sum(i.get("order_quantity", 0) for i in inventory)
+    summary = {
+        "total_items": total_items,
+        "need_order_count": need_count,
+        "total_order_quantity": total_order_qty,
+        "supplier_count": len(orders),
+    }
+    chart_by_status = [
+        {"label": "정상", "count": total_items - need_count, "pct": round(100 * (total_items - need_count) / total_items, 1) if total_items else 0},
+        {"label": "발주 필요", "count": need_count, "pct": round(100 * need_count / total_items, 1) if total_items else 0},
+    ]
+    max_supplier_qty = max((o.get("total_order_quantity") or 0 for o in orders), default=1)
+    chart_by_supplier = [
+        {"name": o.get("supplier_name") or "(미지정)", "qty": o.get("total_order_quantity") or 0, "pct": round(100 * (o.get("total_order_quantity") or 0) / max_supplier_qty, 1) if max_supplier_qty else 0}
+        for o in orders
+    ]
+    updated_item = next((i for i in inventory if (i.get("code") or "").strip() == code), None)
+    payload = {
+        "ok": True,
+        "message": "저장되었습니다. 메일 발송 시 반영됩니다." if os.environ.get("VERCEL") == "1" else "저장되었습니다.",
+        "item": {"code": code, "order_quantity": updated_item.get("order_quantity", 0), "status": updated_item.get("status", "정상")} if updated_item else None,
+        "summary": summary,
+        "chart_by_status": chart_by_status,
+        "chart_by_supplier": chart_by_supplier,
+    }
+    return jsonify(payload)
 
 
 @app.route("/api/inventory/add", methods=["POST"])
