@@ -147,9 +147,13 @@ def get_effective_inventory(excel_path: str):
     last_sent_map = _load_last_sent()
     for item in inventory:
         item["last_sent"] = last_sent_map.get((item.get("supplier") or "").strip(), "") or ""
-    added = session.get("inventory_added_items") or []
-    existing_codes = { (i.get("code") or "").strip() for i in inventory }
+    added = session.get("inventory_added_items")
+    if not isinstance(added, list):
+        added = []
+    existing_codes = {(i.get("code") or "").strip() for i in inventory}
     for a in added:
+        if not isinstance(a, dict):
+            continue
         code = (a.get("code") or "").strip()
         if not code or code in existing_codes:
             continue
@@ -220,7 +224,16 @@ def index():
     data = load_all(excel_path)
     if data.get("error"):
         return render_template(
-            "index.html", error=data["error"], orders=[], inventory=[], summary=None, read_only_deploy=os.environ.get("VERCEL") == "1"
+            "index.html",
+            error=data["error"],
+            orders=[],
+            inventory=[],
+            summary=None,
+            chart_by_status=[],
+            chart_by_supplier=[],
+            excel_path=excel_path,
+            email_template=data.get("email_template", {}),
+            read_only_deploy=os.environ.get("VERCEL") == "1",
         )
     inventory = get_effective_inventory(excel_path)
     orders = get_orders_by_supplier(inventory)
@@ -281,6 +294,11 @@ def upload():
             orders=[],
             inventory=[],
             summary=None,
+            chart_by_status=[],
+            chart_by_supplier=[],
+            excel_path=str(app.config["DEFAULT_EXCEL"]),
+            email_template={},
+            read_only_deploy=os.environ.get("VERCEL") == "1",
         )
     session["uploaded_file"] = safe_name
     return redirect(url_for("index", file=safe_name))

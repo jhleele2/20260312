@@ -211,13 +211,13 @@
     <div class="card"><div class="label">발주 공급업체 수</div><div class="value">{{ summary.supplier_count }}</div></div>
   </div>
 
-  {% if chart_by_status or chart_by_supplier %}
+  {% if (chart_by_status|default([])) or (chart_by_supplier|default([])) %}
   <h2>범주별 시각화 <span class="arrow">›</span></h2>
   <div class="chart-section">
-    {% if chart_by_status %}
+    {% if chart_by_status|default([]) %}
     <div class="chart-box">
       <h3>상태별 품목 수</h3>
-      {% for s in chart_by_status %}
+      {% for s in (chart_by_status|default([])) %}
       <div class="chart-row">
         <div class="flex"><span>{{ s.label }}</span><span>{{ s.count }}건 ({{ s.pct }}%)</span></div>
         <div class="chart-bar-wrap"><div class="chart-bar {{ 'ok' if s.label == '정상' else 'warn' }}" style="width: {{ s.pct }}%;"></div></div>
@@ -225,10 +225,10 @@
       {% endfor %}
     </div>
     {% endif %}
-    {% if chart_by_supplier %}
+    {% if chart_by_supplier|default([]) %}
     <div class="chart-box">
       <h3>공급업체별 발주 수량</h3>
-      {% for s in chart_by_supplier %}
+      {% for s in (chart_by_supplier|default([])) %}
       <div class="chart-row">
         <div class="flex"><span>{{ s.name }}</span><span>{{ s.qty }}</span></div>
         <div class="chart-bar-wrap"><div class="chart-bar supplier" style="width: {{ s.pct }}%;"></div></div>
@@ -319,7 +319,7 @@
   {% endif %}
 
   <script>
-    var excelPathForEdit = {{ (excel_path or '') | tojson }};
+    var excelPathForEdit = {{ (excel_path|default('')) | tojson }};
 
     var btnAdd = document.querySelector('.btn-add-item');
     if (btnAdd) btnAdd.addEventListener('click', function() { document.getElementById('modal-add-item').style.display = 'flex'; });
